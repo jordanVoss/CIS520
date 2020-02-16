@@ -26,9 +26,9 @@ static struct list sleeping_thread_list;
 
 /* Struct that holds information about threading */
 struct sleepingThreads {
-  int64_t ticksToSleep;
-  struct thread * thread;
-  struct list_elem elem;
+  int64_t ticksToSleep;           /* This is the param that was passed into the sleep function */
+  struct thread * thread;         /* Holds the information about the thread that wanted to sleep */
+  struct list_elem elem;          /* Needed to be able to make a list of these structs */
 };
 /**************************************************************
  * End of Global Additions
@@ -199,6 +199,7 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+//------------------------------------------------------------------------------------------------------
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
@@ -224,6 +225,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
     }
   thread_tick ();
 }
+//------------------------------------------------------------------------------------------------------
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

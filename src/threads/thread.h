@@ -93,6 +93,14 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Variables for priority donation */
+    int orig_priority;                  /* The original priority of the thread */
+    struct list donor_list;             /* List of threads that have donated priority */
+    struct list_elem donor_elem;        /* Element that will be in the donor_list */
+    struct lock* lock_waiting_for;       /* Lock that the thread is waiting to acquire */
+    
+
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -139,7 +147,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 //--------------------------------------------------------------------------------------------------
-bool thread_cmp_wakeup (struct list_elem *first_elem, struct list_elem *second_elem);
+bool thread_cmp_priority (struct list_elem *first_elem, struct list_elem *second_elem);
 //--------------------------------------------------------------------------------------------------
 
 #endif /* threads/thread.h */

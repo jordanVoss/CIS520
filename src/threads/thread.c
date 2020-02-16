@@ -201,6 +201,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* Preempt thread priority running */
+  if (thread_current ()->priority < priority)
+    thread_yield();
+
   return tid;
 }
 
@@ -296,6 +300,7 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
+//------------------------------------------------------------------------------------------------------
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
@@ -308,11 +313,13 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, thread_cmp_priority, NULL);
+    //list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
+//------------------------------------------------------------------------------------------------------
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -331,12 +338,40 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+//------------------------------------------------------------------------------------------------------
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  enum intr_level old_level = intr_disable();
+  struct thread* cur_thread = thread_current ();
+  struct thread* traversal;
+  /* If the priority donation list for the current thread is empty
+  * or
+  * the new_priority is greater than the current priority then set the current thread priority equal to the new one
+  */
+  cur_thread->orig_priority = new_priority;
+  if (list_empty (&cur_thread->donor_list) || new_priority > cur_thread->priority)
+  {
+    cur_thread->priority = new_priority;
+    thread_yield();
+  }
+
+  
+  intr_set_level(old_level);
+
+  /*
+  for(traversal = list_rend(&ready_list); !list_empty(&ready_list) && traversal != list_rbegin(&ready_list); traversal = list_prev(traversal))
+  {
+      if(cur_thread->priority < traversal->priority)
+        thread_yield();
+  }
+  */
+
+
+  //Add to ready queue or set to current running thread
 }
+//------------------------------------------------------------------------------------------------------
 
 /* Returns the current thread's priority. */
 int
@@ -462,6 +497,8 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->orig_priority = priority;
+  list_init(&t->donor_list);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -598,4 +635,14 @@ bool thread_cmp_wakeup (struct list_elem *first_elem, struct list_elem *second_e
   return first->wakeupTime < second->wakeupTime;
 }
 */
+
+/* Compare the priorities of two threads and return which one is larger */
+bool thread_cmp_priority (struct list_elem *first_elem, struct list_elem *second_elem) 
+{
+  struct thread *first = list_entry(first_elem, struct thread, elem);
+  struct thread *second = list_entry(second_elem, struct thread, elem);
+
+  //Return if first is greater than second
+  return first->priority > second->priority;
+}
 //-------------------------------------------------------------------------------------------------------

@@ -32,6 +32,18 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
+#include <debug.h>
+#include "threads/flags.h"
+#include "threads/intr-stubs.h"
+#include "threads/palloc.h"
+#include "threads/switch.h"
+#include "threads/vaddr.h"
+#ifdef USERPROG
+#include "userprog/process.h"
+#endif
+
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -196,8 +208,26 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable();
+
+  
+  struct thread* cur_thread = thread_current();
+  if (lock->holder == NULL)
+    lock->holder = cur_thread;
+  else 
+  {
+    cur_thread->lock_waiting_for = lock;
+    struct thread *lock_holding_thread = lock->holder;
+    if(cur_thread->priority > lock_holding_thread->priority)
+    {
+      lock_holding_thread->priority = cur_thread->priority;
+      list_insert_ordered(&lock_holding_thread->donor_list, &cur_thread->donor_elem, thread_cmp_priority, NULL);
+      thread_yield();
+    } 
+  }
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -231,8 +261,68 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  lock->holder = NULL;
+  enum intr_level old_level = intr_disable();
+
+  struct thread* cur_thread = thread_current ();
+  struct thread* traversal;
+  /* Revert the lock to its state before donation */
+  /*
+  while (!list_empty(&cur_thread->donor_list))
+  {
+    thread_set_priority(cur_thread->orig_priority);
+    list_pop_front(&cur_thread->donor_list);
+  }
+  */
+  /* Update the threads priority */
+  
+  if (!list_empty(&cur_thread->donor_list))
+  {
+    list_pop_front(&cur_thread->donor_list);
+    cur_thread->priority = cur_thread->orig_priority;
+    /*
+    for (traversal = list_rbegin(&cur_thread->donor_list); traversal != list_rend(&cur_thread->donor_list); traversal = list_prev(traversal))
+    {
+      if (traversal->lock_waiting_for == lock)
+      {
+        list_remove(&traversal->elem);
+      }
+    }
+    */
+
+    /* Reference: https://github.com/meskuwa/pintos-project-1/blob/master/src/threads/synch.c */
+    struct list_elem* traversal;
+    for (traversal = list_begin(&cur_thread->donor_list); traversal != list_end(&cur_thread->donor_list); )
+    {
+      struct thread *t = list_entry(traversal, struct thread, donor_elem);
+      if (t->lock_waiting_for == lock) 
+      {
+        struct list_elem* to_delete = traversal;
+        traversal = list_next(traversal);
+        list_remove(to_delete);
+      }
+      else
+      {
+        traversal = list_next(traversal);
+      }      
+    }
+
+    cur_thread->priority = cur_thread->orig_priority;
+
+    if (!list_empty(&cur_thread->donor_list))
+    {
+      struct thread* max_donor = list_entry(list_front(&cur_thread->donor_list), struct thread, donor_elem);
+      if (cur_thread->priority < max_donor->priority)
+        cur_thread->priority = max_donor->priority;
+    }
+
+
+
+  }
+
   sema_up (&lock->semaphore);
+  intr_set_level(old_level);
+  lock->holder = NULL;
+  
 }
 
 /* Returns true if the current thread holds LOCK, false
