@@ -97,7 +97,7 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
-
+   
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -137,5 +137,9 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+//--------------------------------------------------------------------------------------------------
+bool thread_cmp_wakeup (struct list_elem *first_elem, struct list_elem *second_elem);
+//--------------------------------------------------------------------------------------------------
 
 #endif /* threads/thread.h */

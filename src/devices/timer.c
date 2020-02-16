@@ -17,6 +17,23 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+/**************************************************************
+ * Struct Addition
+ * Global Variable Addition
+ *************************************************************/
+/* List that holds all of the sleeping threads */
+static struct list sleeping_thread_list;
+
+/* Struct that holds information about threading */
+struct sleepingThreads {
+  int64_t ticksToSleep;
+  struct thread * thread;
+  struct list_elem elem;
+};
+/**************************************************************
+ * End of Global Additions
+ **************************************************************/
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -37,6 +54,8 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  ticks = 0;
+  list_init(&sleeping_thread_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -84,17 +103,31 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+//------------------------------------------------------------------------------------------------------
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
-{
-  int64_t start = timer_ticks ();
-
+timer_sleep (int64_t sleepForThisLong) 
+{ 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  
+  if(sleepForThisLong > 0)
+  {
+    struct sleepingThreads sleepy_thread;
+    struct thread* t = thread_current();
+
+    /* Grabs the thread's information so we can wake it up later */
+    sleepy_thread.thread = t;
+    sleepy_thread.ticksToSleep = sleepForThisLong;
+    
+    /* Disables interrupts, inserts into list, enables interrupts */
+    enum intr_level old = intr_disable();
+    list_push_front(&sleeping_thread_list, &sleepy_thread.elem);
+    thread_block();
+    intr_set_level(old);
+  }
 }
+//------------------------------------------------------------------------------------------------------
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
    turned on. */
@@ -170,7 +203,25 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  ticks++;
+    /* Ticks is being incremented automatically */
+    ticks++;
+      
+    /* After execution of this line current = first element of list */
+    struct list_elem *traversal;
+    struct sleepingThreads *thread;
+      
+    /* Interates through the list until the end is reached */
+    for(traversal = list_rbegin(&sleeping_thread_list); !list_empty(&sleeping_thread_list) && traversal != list_rend(&sleeping_thread_list); traversal = list_prev(traversal))
+    {
+      thread = list_entry(traversal, struct sleepingThreads, elem);
+      thread->ticksToSleep--;
+      if(thread->ticksToSleep <= 0)
+      {
+        list_remove(traversal);
+        struct thread* t = thread->thread;
+        thread_unblock(t);
+      }
+    }
   thread_tick ();
 }
 
