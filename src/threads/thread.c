@@ -582,3 +582,20 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+//------------------------------------------------------------------------------------------------------
+/* Compare wakeup times of threads
+   Return whther the first thread wakeuptime is less than the second
+   
+   Reference: https://github.com/Waqee/Pintos-Project-1/blob/master/src/threads/thread.c
+    
+bool thread_cmp_wakeup (struct list_elem *first_elem, struct list_elem *second_elem)
+{
+  struct thread *first = list_entry (first_elem, struct thread, elem);
+  struct thread *second = list_entry (second_elem, struct thread, elem);
+
+  return first->wakeupTime < second->wakeupTime;
+}
+*/
+//-------------------------------------------------------------------------------------------------------
