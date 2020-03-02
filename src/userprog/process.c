@@ -31,6 +31,7 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -53,6 +54,8 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
+  char *file_cpy;
+  
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -88,7 +91,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  while(true)
+    thread_yield();
 }
 
 /* Free the current process's resources. */
@@ -195,7 +199,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char* file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -302,7 +306,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, (char*)file_name))
     goto done;
 
   /* Start address. */
@@ -426,22 +430,109 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
+/* Reference: http://bits.usc.edu/cs350/assignments/project2.pdf */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char* file_name) 
 {
   uint8_t *kpage;
   bool success = false;
 
+  
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
+  {
+    success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+    if (success)
+      *esp = PHYS_BASE;
+    else
+      palloc_free_page (kpage);     
+  }
+  
+
+
+  /* Set up stack here*/
+  int i = 0, argc = find_argc(file_name);
+  char *token, *save_ptr;
+
+  char **argv = malloc((argc + 1) * sizeof(char *));
+
+  /* This variable will be used to determine how far the 
+          esp pointer needs to move after each token */
+  size_t token_length;
+
+  /*This loop pushes the actual values onto the stack */
+  while((token = strtok_r(file_name, " ", &save_ptr)) && i >= 0)
+  {
+    /* +1 needed to include the NULL termination character */
+    token_length = strlen(token) + 1;
+
+    /*esp must decrement by the length of the token
+          so it can fit in memory */
+    *esp = *esp - token_length;
+    memcpy(*esp, token, token_length);
+
+    /* Set the reference to the variable */
+    argv[i] = *esp;
+    i--; //This was originally set to i++,but then the loop would never terminate based on i
+  }
+
+  /* Word Align? */
+
+  /* Push addresses of parameters onto stack 
+      Remember they must be pushed from right to left*/
+  for(i = argc; i >= 0; i--)
+  {
+    /* The addresses are char * */
+    *esp = *esp - sizeof(char *);
+    memcpy(*esp, &argv[i], sizeof(char *));
+  }
+
+  /* Write the address of argv */
+  void *ptr = *esp;
+  *esp = *esp - sizeof(char *);
+  memcpy(*esp, &argv, sizeof(char **));
+
+  /* Write argc */
+  *esp = *esp - sizeof(int);
+  memcpy(*esp, &argc, sizeof(int));
+
+  /* Write 0 as return address */
+  *esp = *esp - sizeof(int);
+  memcpy(*esp, 0, sizeof(int));
+
+  free(argv);
   return success;
+}
+
+/*
+* Method: find_argc
+* Parameter: const char* file_name
+                -Needed for iteration
+* Purpose: Return the number of command line arguments
+*/
+int 
+find_argc(const char* file_name)
+{
+  int argc = 0;
+
+  /* Create an initialize a copy of file_name for manipulation */
+  char *fn_cpy, *token, *save_ptr;
+  fn_cpy = malloc(strlen(file_name)+1);
+  strlcpy(fn_cpy, file_name, strlen(file_name)+1);
+
+  /* Iterate through the file_name and count how many spaces */
+  /*
+  while((token = strtok_r(fn_cpy, " ", &save_ptr)))
+  {
+    argc++;
+  }
+  */
+ for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
+ {
+   argc++;
+ }
+  free(fn_cpy);
+  return argc;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
