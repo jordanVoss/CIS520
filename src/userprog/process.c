@@ -39,8 +39,18 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  //---------------------------------------------------------
+
+  //Extract the first value from the file_name
+  char *save_ptr;
+  char *file_name_start = malloc((char)strlen(file_name)+1);
+
+  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
+  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
+  //---------------------------------------------------------
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name_start, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -56,6 +66,15 @@ start_process (void *file_name_)
   bool success;
   char *file_cpy;
   
+    //---------------------------------------------------------
+
+  //Extract the first value from the file_name
+  char *save_ptr;
+  char *file_name_start = malloc((char)strlen(file_name)+1);
+
+  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
+  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
+  //---------------------------------------------------------
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -225,8 +244,18 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  //---------------------------------------------------------
+
+  //Extract the first value from the file_name
+  char *save_ptr;
+  char *file_name_start = malloc((char)strlen(file_name)+1);
+
+  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
+  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
+  //---------------------------------------------------------
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (file_name_start);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -451,56 +480,80 @@ setup_stack (void **esp, char* file_name)
 
 
   /* Set up stack here*/
-  int i = 0, argc = find_argc(file_name);
+  int argc = find_argc(file_name);
   char *token, *save_ptr;
 
-  char **argv = malloc((argc + 1) * sizeof(char *));
+  char **argv = (char**)malloc((argc + 1) * sizeof(char *));
 
   /* This variable will be used to determine how far the 
           esp pointer needs to move after each token */
   size_t token_length;
 
-  /*This loop pushes the actual values onto the stack */
-  while((token = strtok_r(file_name, " ", &save_ptr)) && i >= 0)
-  {
-    /* +1 needed to include the NULL termination character */
-    token_length = strlen(token) + 1;
+  char *fn_cpy = (char*)malloc(strlen(file_name)+1);
+  strlcpy(fn_cpy, file_name, strlen(file_name)+1);
 
+  int i = 0; 
+  /*This loop pushes the actual values onto the stack */
+  for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
+  {
     /*esp must decrement by the length of the token
           so it can fit in memory */
-    *esp = *esp - token_length;
-    memcpy(*esp, token, token_length);
-
+    *esp -= strlen(token) + 1;
+    memcpy(*esp, token, strlen(token)+1);
+    
     /* Set the reference to the variable */
     argv[i] = *esp;
-    i--; //This was originally set to i++,but then the loop would never terminate based on i
+    i++;
+  }
+  hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
+
+
+  /* Word Align? 
+  for(int i = 3; i >= 0; i--)
+  {
+    *esp -= sizeof(char);
+    //ASCII value for NULL is 0
+    char temp = 0;
+    memcpy(*esp, &temp, sizeof(char));
+  }
+  */
+  while((int)*esp%4 != 0)
+  {
+    /* The addresses are char * */
+    *esp -= sizeof(char);
+    char temp = 0;
+    memcpy(*esp, &temp, sizeof(char));
   }
 
-  /* Word Align? */
+  int returnAddress = 0;
+  *esp -= sizeof(int);
+  memcpy(*esp, &returnAddress, sizeof(int));
 
   /* Push addresses of parameters onto stack 
       Remember they must be pushed from right to left*/
-  for(i = argc; i >= 0; i--)
+  for (int i = argc; i >= 0; i++)
   {
-    /* The addresses are char * */
-    *esp = *esp - sizeof(char *);
-    memcpy(*esp, &argv[i], sizeof(char *));
+    *esp -= sizeof(int);
+    memcpy(*esp, &argv[i], sizeof(int));
   }
-
+  
+  
   /* Write the address of argv */
-  void *ptr = *esp;
-  *esp = *esp - sizeof(char *);
+  *esp -= sizeof(char *);
   memcpy(*esp, &argv, sizeof(char **));
 
   /* Write argc */
-  *esp = *esp - sizeof(int);
+  *esp -= sizeof(int);
   memcpy(*esp, &argc, sizeof(int));
 
   /* Write 0 as return address */
-  *esp = *esp - sizeof(int);
-  memcpy(*esp, 0, sizeof(int));
+  *esp -= sizeof(int);
+  memcpy(*esp, &returnAddress, sizeof(int));
 
   free(argv);
+  free(fn_cpy);
+  hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
+
   return success;
 }
 
@@ -517,20 +570,17 @@ find_argc(const char* file_name)
 
   /* Create an initialize a copy of file_name for manipulation */
   char *fn_cpy, *token, *save_ptr;
-  fn_cpy = malloc(strlen(file_name)+1);
+  fn_cpy = (char *)malloc(strlen(file_name)+1);
   strlcpy(fn_cpy, file_name, strlen(file_name)+1);
 
-  /* Iterate through the file_name and count how many spaces */
-  /*
-  while((token = strtok_r(fn_cpy, " ", &save_ptr)))
+  for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
   {
     argc++;
   }
-  */
- for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
- {
-   argc++;
- }
+  
+  if (argc != 0)
+    argc--;
+  
   free(fn_cpy);
   return argc;
 }
