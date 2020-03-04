@@ -43,14 +43,16 @@ process_execute (const char *file_name)
 
   //Extract the first value from the file_name
   char *save_ptr;
-  char *file_name_start = malloc((char)strlen(file_name)+1);
+  char *file_name_start;
+  file_name_start = malloc((char)strlen(file_name)+1);
 
-  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
+  strlcpy(file_name_start, file_name, strlen(file_name)+1);
   file_name_start = strtok_r(file_name_start, " ", &save_ptr);
   //---------------------------------------------------------
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name_start, PRI_DEFAULT, start_process, fn_copy);
+  free(file_name_start);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -66,15 +68,6 @@ start_process (void *file_name_)
   bool success;
   char *file_cpy;
   
-    //---------------------------------------------------------
-
-  //Extract the first value from the file_name
-  char *save_ptr;
-  char *file_name_start = malloc((char)strlen(file_name)+1);
-
-  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
-  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
-  //---------------------------------------------------------
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -87,6 +80,7 @@ start_process (void *file_name_)
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
+  
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -238,6 +232,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
+
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -248,14 +244,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   //Extract the first value from the file_name
   char *save_ptr;
-  char *file_name_start = malloc((char)strlen(file_name)+1);
+  char *file_name_start = malloc(strlen(file_name)+1);
 
-  strlcpy(file_name_start, file_name, (char)strlen(file_name)+1);
+  strlcpy(file_name_start, file_name, strlen(file_name)+1);
   file_name_start = strtok_r(file_name_start, " ", &save_ptr);
   //---------------------------------------------------------
 
   /* Open executable file. */
   file = filesys_open (file_name_start);
+
+  free(file_name_start);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -335,13 +333,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, (char*)file_name))
+  if (!setup_stack (esp, file_name))
     goto done;
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
+
+  //file_deny_write(file);
+
 
  done:
   /* We arrive here whether the load is successful or not. */
@@ -481,20 +482,22 @@ setup_stack (void **esp, char* file_name)
 
   /* Set up stack here*/
   int argc = find_argc(file_name);
+
   char *token, *save_ptr;
 
-  char **argv = (char**)malloc((argc + 1) * sizeof(char *));
+  //char **argv = (char**)malloc((argc + 1) * sizeof(char *));
+  int *argv = (int)malloc(sizeof(int)*argc);
 
   /* This variable will be used to determine how far the 
           esp pointer needs to move after each token */
-  size_t token_length;
+  //size_t token_length;
 
-  char *fn_cpy = (char*)malloc(strlen(file_name)+1);
+  char *fn_cpy = malloc(strlen(file_name)+1);
   strlcpy(fn_cpy, file_name, strlen(file_name)+1);
 
   int i = 0; 
   /*This loop pushes the actual values onto the stack */
-  for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
+  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
   {
     /*esp must decrement by the length of the token
           so it can fit in memory */
@@ -526,12 +529,13 @@ setup_stack (void **esp, char* file_name)
   }
 
   int returnAddress = 0;
+
   *esp -= sizeof(int);
   memcpy(*esp, &returnAddress, sizeof(int));
 
   /* Push addresses of parameters onto stack 
       Remember they must be pushed from right to left*/
-  for (int i = argc; i >= 0; i++)
+  for (int i = argc-1; i >= 0; i--)
   {
     *esp -= sizeof(int);
     memcpy(*esp, &argv[i], sizeof(int));
@@ -539,8 +543,14 @@ setup_stack (void **esp, char* file_name)
   
   
   /* Write the address of argv */
+  int ptr = *esp;
+  *esp -= sizeof(int);
+  memcpy(*esp, &ptr, sizeof(int));
+  /*
   *esp -= sizeof(char *);
   memcpy(*esp, &argv, sizeof(char **));
+  */
+
 
   /* Write argc */
   *esp -= sizeof(int);
@@ -578,8 +588,8 @@ find_argc(const char* file_name)
     argc++;
   }
   
-  if (argc != 0)
-    argc--;
+ // if (argc != 0)
+   // argc--;
   
   free(fn_cpy);
   return argc;
