@@ -152,11 +152,11 @@ syscall_handler (struct intr_frame *f UNUSED)
     break;
     
   default:;
-    printf("How did you even get here???");
-    break;
+    //printf("How did you even get here???");
+    printf("Default %d\n", *esp);
+    //break;
   }
-  printf ("system call!\n");
-  thread_exit ();
+  //thread_exit ();
 }
 
 
@@ -178,8 +178,34 @@ void exit(int status)
 
 pid_t exec(const char *comd_line)
 {
-  pid_t temp;
-  return temp;
+  lock_acquire(&filesys_lock); //Grab the lock
+
+  //Get the first element of the comand line (filename)
+  char *token = malloc(strlen(comd_line)+1);
+  strlcpy(token, comd_line, strlen(comd_line)+1);
+
+  //Set token to the first element
+  char* save_ptr;
+  token = strtok_r(&token, " ", &save_ptr);
+
+  //Open the file
+  struct file* f = filesys_open(token);
+
+  //If file could not be opened, return -1
+  if (f == NULL)
+  {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+
+  //close the file
+  file_close(f);
+
+  //release the lock
+  lock_release(&filesys_lock);
+
+  //return the execution of the file
+  return process_execute(comd_line);
 }
 
 

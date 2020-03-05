@@ -490,7 +490,6 @@ setup_stack (void **esp, char* file_name)
 
   /* This variable will be used to determine how far the 
           esp pointer needs to move after each token */
-  //size_t token_length;
 
   char *fn_cpy = malloc(strlen(file_name)+1);
   strlcpy(fn_cpy, file_name, strlen(file_name)+1);
@@ -506,6 +505,7 @@ setup_stack (void **esp, char* file_name)
     
     /* Set the reference to the variable */
     argv[i] = *esp;
+
     i++;
   }
   hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
@@ -535,7 +535,8 @@ setup_stack (void **esp, char* file_name)
 
   /* Push addresses of parameters onto stack 
       Remember they must be pushed from right to left*/
-  for (int i = argc-1; i >= 0; i--)
+  //for (int i = argc-1; i >= 0; i--)
+  for (int i = 0; i <= argc-1; i++)
   {
     *esp -= sizeof(int);
     memcpy(*esp, &argv[i], sizeof(int));
