@@ -463,6 +463,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->fd = 2; //Used for project 2, file descriptor
+  //list_init(&t->file_descriptors);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
