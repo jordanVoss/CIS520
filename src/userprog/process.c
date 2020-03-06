@@ -100,12 +100,40 @@ start_process (void *file_name_)
    immediately, without waiting.
 
    This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   does nothing. 
+   
+   Reference code: https://github.com/ChristianJHughes/pintos-project2/blob/master/pintos/src/userprog/process.c
+   */
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(true)
-    thread_yield();
+
+  struct thread* tchild = NULL;
+
+  struct list_elem* iter; //Element to iterate child list with
+
+  if (list_empty(&thread_current()->child_process_list)) //There are no child threads to check
+    return -1;
+  
+
+  for (iter = list_front(&thread_current()->child_process_list); iter != NULL; iter = iter->next)
+  {
+    struct thread* t = list_entry(iter, struct thread, child_process);
+    if (t->tid = child_tid)
+    {
+      tchild = t;
+      break;
+    }
+  }
+
+  if (tchild == NULL) //We didn't find the child thread
+    return -1;
+
+  list_remove(&tchild->child_process);
+  sema_down(&tchild->child_sema);
+
+  return &tchild->exit_status;
+
 }
 
 /* Free the current process's resources. */
@@ -114,6 +142,9 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+  if (cur->exit_status == -100)
+    exit_proc(-1);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

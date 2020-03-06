@@ -57,6 +57,7 @@ int systemCall_write(int fd, void *buffer, unsigned size);
 void systemCall_seek(int fd, unsigned position);
 unsigned systemCall_tell(int fd);
 void systemCall_close(int fd);
+struct process_file *search(struct list* files, int fd);
 
 struct lock filesys_lock; //Lock used for filesys applications
 
@@ -119,8 +120,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     */
     case(SYS_WAIT):;
       pid_t arg3 = *(esp + 1);
-      int EAX_new = systemCall_wait(arg3);
-      f->eax = (uint32_t)EAX_new;
+      f->eax = systemCall_wait(arg3);
       break;
 
     /* System Call: Create
@@ -220,9 +220,9 @@ void systemCall_halt(void)
 
 void systemCall_exit(int exitStatus)
 {
-  lock_acquire(&filesys_lock);
-  systemCall_exit(exitStatus);
-  lock_release(&filesys_lock);
+  thread_current()->exit_status = exitStatus;
+  printf("%s is exiting with status: %d\n", thread_current()->name, exitStatus);
+  thread_exit();
 }
 
 
@@ -261,22 +261,33 @@ pid_t systemCall_exec(const char *comd_line)
 /* The wait system call */
 int systemCall_wait(pid_t pid)
 {
-  int temp;
-  return temp;
+  return process_wait(pid);
+  //return temp;
 }
 
 /* The create file system call */
 bool systemCall_create(const char *file, unsigned initial_size)
 {
-  bool temp;
-  return temp;
+  lock_acquire(&filesys_lock);
+  
+  bool result = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+  return result;
 }
 
 
 bool systemCall_remove(const char *file)
 {
-  bool temp;
-  return temp;
+  lock_acquire(&filesys_lock);
+  bool result;
+  if (filesys_remove(*file) == NULL)
+    result = false;
+  else
+    result = true;
+  
+  lock_release(&filesys_lock);
+  
+  return result;
 }
 
 
@@ -314,6 +325,7 @@ int systemCall_filesize(int fd)
   int size = lseek(fd, 0, SEEK_END);
   return size;
   */
+ 
  return -1;
 }
 
@@ -336,16 +348,17 @@ int systemCall_write(int fd, void *buffer, unsigned size)
     return size;
   }
   
-  struct process_file *p_file = malloc(sizeof(struct process_file));
-  struct list_elem *iter = list_head(&thread_current()->file_descriptors);
-  /*
-  while ((iter = list_next (&iter)) != NULL)
+  struct process_file *p_file = search(&thread_current()->file_descriptors, fd);
+
+  if (p_file == NULL)
   {
-      if (*iter->)
+    lock_release(&filesys_lock);
+    return -1;
   }
-  */
- lock_release(&filesys_lock);
-  return 0;
+
+
+  lock_release(&filesys_lock);
+  return file_write(p_file->file_ptr, buffer, size);
 }
 
 
@@ -368,3 +381,18 @@ void systemCall_close(int fd)
   //last bit of gold
 }
 
+struct process_file *search(struct list* files, int fd)
+{
+    struct list_elem* elem;
+
+    for (elem = list_begin(files); elem != list_end(files); elem = list_next(files))
+    {
+      struct process_file* file = list_entry(elem, struct process_file, file_elem);
+
+      if (file->fd == fd)
+      {
+        return file;
+      }
+    }
+    return NULL;
+}
