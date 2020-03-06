@@ -137,7 +137,9 @@ process_wait (tid_t child_tid UNUSED)
 
 }
 
-/* Free the current process's resources. */
+/* Free the current process's resources. 
+  Reference code: https://github.com/rida300/520Pintos/blob/master/cis520/pintos/src/userprog/process.c
+*/
 void
 process_exit (void)
 {

@@ -59,7 +59,7 @@ unsigned systemCall_tell(int fd);
 void systemCall_close(int fd);
 struct process_file *search(struct list* files, int fd);
 
-struct lock filesys_lock; //Lock used for filesys applications
+
 
 void
 syscall_init (void) 
@@ -405,7 +405,7 @@ close_all_files(struct list* files)
 {
   struct list_elem* e;
 
-  while (!list_empty(e))
+  while (!list_empty(files))
   {
     e = list_pop_front(files);
     struct process_file *f = list_entry(e, struct process_file, file_elem);
