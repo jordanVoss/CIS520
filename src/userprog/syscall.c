@@ -396,3 +396,22 @@ struct process_file *search(struct list* files, int fd)
     }
     return NULL;
 }
+
+/* Removes all files from the list and closes them
+  Reference: https://github.com/rida300/520Pintos/blob/master/cis520/pintos/src/userprog/syscall.c
+*/
+void
+close_all_files(struct list* files)
+{
+  struct list_elem* e;
+
+  while (!list_empty(e))
+  {
+    e = list_pop_front(files);
+    struct process_file *f = list_entry(e, struct process_file, file_elem);
+
+    file_close(f->file_ptr);
+    list_remove(e);
+    free(f);
+  }
+}

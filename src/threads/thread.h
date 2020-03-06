@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <kernel/list.h>
 #include <threads/synch.h>
 
 /* States in a thread's life cycle. */
@@ -24,6 +25,11 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+
+/* Lock used for filesys applications */
+struct lock filesys_lock; 
+
 
 /* A kernel thread or user process.
 
@@ -98,11 +104,12 @@ struct thread
 
     int exit_status;
     //------------USED FOR PROJECT 2-----------------//
-    int fd;
-    struct list file_descriptors;       /* Integer for file decriptore */
+    int fd;                             /* Integer for file descriptors */
+    struct list file_descriptors;       /* List of file decriptore */
     struct list child_process_list;     /* List of child processes */
     struct list_elem child_process;     /* Element for child process, for iteration */
     struct semaphore child_sema;        /* Used to put parent thread to sleep */
+    struct file *my_file;               /* Threads File */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

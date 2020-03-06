@@ -37,6 +37,8 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -71,6 +73,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -90,6 +93,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init(&filesys_lock);
   list_init (&ready_list);
   list_init (&all_list);
 
@@ -463,11 +467,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  
+
   t->fd = 2; //Used for project 2, file descriptor
   list_init(&t->file_descriptors);
   list_init(&t->child_process_list);
   sema_init(&t->child_sema, 0);
+  t->my_file = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -583,6 +588,7 @@ allocate_tid (void)
 
   return tid;
 }
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
