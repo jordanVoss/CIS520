@@ -44,18 +44,19 @@ syscall_handler (struct intr_frame *f UNUSED)
 #include "threads/pte.h"
 
 static void syscall_handler (struct intr_frame *);
-void halt(void);
-void exit(int status);
-pid_t exec(const char *comd_line);
-int wait(pid_t pid);
-bool create(const char *file, unsigned initial_size);
-bool remove(const char *file);
-int open(const char *file);
-int filesize(int fd);
-int read(int fd, void *buffer, unsigned size);
-void seek(int fd, unsigned position);
-unsigned tell(int fd);
-void close(int fd);
+void systemCall_halt(void);
+void systemCall_exit(int status);
+pid_t systemCall_exec(const char *comd_line);
+int systemCall_wait(pid_t pid);
+bool systemCall_create(const char *file, unsigned initial_size);
+bool systemCall_remove(const char *file);
+int systemCall_open(const char *file);
+int systemCall_filesize(int fd);
+int systemCall_read(int fd, void *buffer, unsigned size);
+int systemCall_write(int fd, void *buffer, unsigned size);
+void systemCall_seek(int fd, unsigned position);
+unsigned systemCall_tell(int fd);
+void systemCall_close(int fd);
 
 struct lock filesys_lock; //Lock used for filesys applications
 
@@ -79,104 +80,153 @@ process_file {
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  /* Gets the effective address of esp */
   int *esp = (int *)f->esp;
-  //get word from esp
-  //case statement to send shit off
-  int system_call = *esp;
 
+  /* Dereference esp to get the system call */  
+  int system_call = *esp;
+  
+  /* Switch for finding the correct method
+    * for the system_call param */
   switch (system_call)
   {
-  case(SYS_HALT):;
-    halt();
-    break;
-  
-  case(SYS_EXIT):;
-    int arg1 = *(esp + 1);
-    exit(arg1);
-    break;
-
-  case(SYS_EXEC):;
-    char* arg2 = *(esp + 1); //gets the argument off of the stack
-    pid_t EAX = exec(arg2);  //accuires output from method call
-    f->eax = (uint32_t)EAX;  //assigns output to volitile register
-    break;
-
-  case(SYS_WAIT):;
-    pid_t arg3 = *(esp + 1);
-    int EAX_new = wait(arg3);
-    f->eax = (uint32_t)EAX_new;
-    break;
-
-  case(SYS_CREATE):;
-    char *arg4 = *(esp + 1);
-    unsigned arg5 = *(esp + 2);
-    f->eax = (uint32_t)create(arg4, arg5);
-    break;
-
-  case(SYS_REMOVE):;
-    char *arg6 = *(esp + 1);
-    f->eax = (uint32_t)remove(arg6);
-    break;
-
-  case(SYS_OPEN):;
-    char *arg7 = *(esp + 1);
-    f->eax = (uint32_t)open(arg7);
-    break;
-  
-  case(SYS_FILESIZE):;
-    int arg8 = *(esp + 1);
-    f->eax = (uint32_t)filesize(arg8);
-    break;
-
-  case(SYS_READ):;
-    int arg9 = *(esp + 1);
-    void *arg10 = *(esp + 2);
-    unsigned arg11 = *(esp + 3);
-    f->eax = (uint32_t)read(arg9, arg10, arg11);
-    break;
-
-  case(SYS_WRITE):;
-    printf("\n\nI am in SYS_WRITE\n\n");
-    break;
-
-  case(SYS_SEEK):;
-    printf("\n\nI am in SYS_SEEK\n\n");
-    break;
-
-  case(SYS_TELL):;
-    printf("\n\nI am in SYS_TELL\n\n");
-    break;
-
-  case(SYS_CLOSE):;
-    printf("\n\nI am in SYS_CLOSE\n\n");
-    break;
+    /* System Call: Halt
+       Status: Done
+    */
+    case(SYS_HALT):;
+      systemCall_halt();
+      break;
     
-  default:;
-    //printf("How did you even get here???");
-    printf("Default %d\n", *esp);
-    //break;
+    /* System Call: Exit
+       Status: Needs implemented
+    */
+    case(SYS_EXIT):;
+      int exitStatus = *(esp + 1);
+      systemCall_exit(exitStatus);
+      break;
+
+    /* System Call: Exec
+       Status: Think we are correct
+    */
+    case(SYS_EXEC):;
+      char* arg2 = *(esp + 1); //gets the argument off of the stack
+      pid_t EAX = systemCall_exec(arg2);  //accuires output from method call
+      f->eax = (uint32_t)EAX;  //assigns output to volitile register
+      break;
+
+    /* System Call: Wait
+       Status: Needs implemented
+    */
+    case(SYS_WAIT):;
+      pid_t arg3 = *(esp + 1);
+      int EAX_new = systemCall_wait(arg3);
+      f->eax = (uint32_t)EAX_new;
+      break;
+
+    /* System Call: Create
+       Status: Needs implemented
+    */
+    case(SYS_CREATE):;
+      char *arg4 = *(esp + 1);
+      unsigned arg5 = *(esp + 2);
+      f->eax = (uint32_t)systemCall_create(arg4, arg5);
+      break;
+
+    /* System Call: Remove
+       Status: Needs implemented
+    */
+    case(SYS_REMOVE):;
+      char *arg6 = *(esp + 1);
+      f->eax = (uint32_t)systemCall_remove(arg6);
+      break;
+
+    /* System Call: Open
+       Status: Think we are correct
+    */
+    case(SYS_OPEN):;
+      char *arg7 = *(esp + 1);
+      //char *tempvar = *(esp + 2);
+      //printf("%s\n\n",&tempvar);
+      f->eax = (uint32_t)systemCall_open(arg7);
+      break;
+    
+    /* System Call: Filesize
+       Status: Needs implemented
+    */
+    case(SYS_FILESIZE):;
+      int arg8 = *(esp + 1);
+      f->eax = (uint32_t)systemCall_filesize(arg8);
+      break;
+
+    /* System Call: Read
+       Status: Needs implemented
+    */
+    case(SYS_READ):;
+      int arg9 = *(esp + 1);
+      void *arg10 = *(esp + 2);
+      unsigned arg11 = *(esp + 3);
+      f->eax = (uint32_t)systemCall_read(arg9, arg10, arg11);
+      break;
+
+    /* System Call: Write
+       Status: Actively working
+    */  
+    case(SYS_WRITE):;
+      //int arg12 = *((int*)*(esp + 1));
+      //void *arg13 = (void*) (*((int*)*(esp + 2)));
+      //unsigned arg14 = *((unsigned*)*(esp + 3));
+      int arg12 = *(esp + 1);
+      void *arg13 = *(esp + 2);
+      unsigned arg14 = *(esp + 3);
+      //unsigned arg14 = 2;
+      f->eax = systemCall_write(arg12, arg13, arg14);
+      //printf("\n\nI am in SYS_WRITE\n\n");
+      break;
+
+    /* System Call: Create
+       Status: Needs implemented
+    */
+    case(SYS_SEEK):;
+      printf("\n\nI am in SYS_SEEK\n\n");
+      break;
+
+    /* System Call: Create
+       Status: Needs implemented
+    */  
+    case(SYS_TELL):;
+      printf("\n\nI am in SYS_TELL\n\n");
+      
+      break;
+
+    /* System Call: Create
+       Status: Needs implemented
+    */
+    case(SYS_CLOSE):;
+      printf("\n\nI am in SYS_CLOSE\n\n");
+      break;
+
+
+    default:;
+      printf("Default %d\n", *esp);
   }
-  //thread_exit ();
 }
 
-
-
-
-
-
-void halt(void)
+/* The halt system call */
+void systemCall_halt(void)
 {
   shutdown_power_off();
 }
 
 
-void exit(int status)
+void systemCall_exit(int exitStatus)
 {
-  //insert gold here
+  lock_acquire(&filesys_lock);
+  systemCall_exit(exitStatus);
+  lock_release(&filesys_lock);
 }
 
 
-pid_t exec(const char *comd_line)
+pid_t systemCall_exec(const char *comd_line)
 {
   lock_acquire(&filesys_lock); //Grab the lock
 
@@ -208,29 +258,29 @@ pid_t exec(const char *comd_line)
   return process_execute(comd_line);
 }
 
-
-int wait(pid_t pid)
+/* The wait system call */
+int systemCall_wait(pid_t pid)
 {
   int temp;
   return temp;
 }
 
-
-bool create(const char *file, unsigned initial_size)
+/* The create file system call */
+bool systemCall_create(const char *file, unsigned initial_size)
 {
   bool temp;
   return temp;
 }
 
 
-bool remove(const char *file)
+bool systemCall_remove(const char *file)
 {
   bool temp;
   return temp;
 }
 
 
-int open(const char *file)
+int systemCall_open(const char *file)
 {
   lock_acquire(&filesys_lock);
   
@@ -243,7 +293,7 @@ int open(const char *file)
     return -1;
   }
   
-  struct process_file* pfile = malloc(sizeof(struct process_file));
+  struct process_file *pfile = malloc(sizeof(struct process_file));
   pfile->file_ptr = f;
   pfile->fd = thread_current()->fd;
   thread_current()->fd++; //Increment file descriptor
@@ -258,7 +308,7 @@ int open(const char *file)
 
 //-------------------------THIS FUNCTION IS NOT WORKING--------------------------//
 //SEEK_END is undeclared
-int filesize(int fd)
+int systemCall_filesize(int fd)
 {
   /*
   int size = lseek(fd, 0, SEEK_END);
@@ -268,27 +318,52 @@ int filesize(int fd)
 }
 
 
-int read(int fd, void *buffer, unsigned size)
+int systemCall_read(int fd, void *buffer, unsigned size)
 {
   int temp;
   return temp;
 }
 
+int systemCall_write(int fd, void *buffer, unsigned size)
+{
+  lock_acquire(&filesys_lock);
 
-void seek(int fd, unsigned position)
+  
+  if (fd == 1)
+  {
+    putbuf(buffer, size);
+    lock_release(&filesys_lock);
+    return size;
+  }
+  
+  struct process_file *p_file = malloc(sizeof(struct process_file));
+  struct list_elem *iter = list_head(&thread_current()->file_descriptors);
+  /*
+  while ((iter = list_next (&iter)) != NULL)
+  {
+      if (*iter->)
+  }
+  */
+ lock_release(&filesys_lock);
+  return 0;
+}
+
+
+void systemCall_seek(int fd, unsigned position)
 {
   //more gold please
 }
 
 
-unsigned tell(int fd)
+unsigned systemCall_tell(int fd)
 {
   unsigned temp;
   return temp;
 }
 
 
-void close(int fd)
+///
+void systemCall_close(int fd)
 {
   //last bit of gold
 }

@@ -92,7 +92,10 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+   
 
+
+    int exit_status;
     //------------USED FOR PROJECT 2-----------------//
     int fd;
     struct list file_descriptors;

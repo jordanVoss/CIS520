@@ -477,49 +477,37 @@ setup_stack (void **esp, char* file_name)
     else
       palloc_free_page (kpage);     
   }
-  
 
 
   /* Set up stack here*/
   int argc = find_argc(file_name);
 
-  char *token, *save_ptr;
-
-  //char **argv = (char**)malloc((argc + 1) * sizeof(char *));
+  char *arguments[argc]; //Hold a list of the arguments
+  char *save_ptr, *token; 
   int *argv = (int)malloc(sizeof(int)*argc);
-
-  /* This variable will be used to determine how far the 
-          esp pointer needs to move after each token */
 
   char *fn_cpy = malloc(strlen(file_name)+1);
   strlcpy(fn_cpy, file_name, strlen(file_name)+1);
 
-  int i = 0; 
-  /*This loop pushes the actual values onto the stack */
-  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
+  //Create a list of arguments to be pushed onto the stack
+  token = strtok_r((char*)file_name, " ", &save_ptr);
+  for (int i = 0; i < argc; i++)
   {
-    /*esp must decrement by the length of the token
-          so it can fit in memory */
-    *esp -= strlen(token) + 1;
-    memcpy(*esp, token, strlen(token)+1);
     
-    /* Set the reference to the variable */
-    argv[i] = *esp;
-
-    i++;
+    arguments[i] = token;
+    token = strtok_r(NULL," ", &save_ptr);
   }
-  hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
 
-
-  /* Word Align? 
-  for(int i = 3; i >= 0; i--)
+  //Add the arguments to the stack
+  for (int i = argc-1; i >= 0; i--) 
   {
-    *esp -= sizeof(char);
-    //ASCII value for NULL is 0
-    char temp = 0;
-    memcpy(*esp, &temp, sizeof(char));
+    *esp -= strlen(arguments[i])+1;
+    memcpy(*esp, arguments[i], strlen(arguments[i]) + 1);
+
+    argv[i] = *esp;
   }
-  */
+
+  //Word align
   while((int)*esp%4 != 0)
   {
     /* The addresses are char * */
@@ -528,21 +516,17 @@ setup_stack (void **esp, char* file_name)
     memcpy(*esp, &temp, sizeof(char));
   }
 
-  int returnAddress = 0;
+  int returnAddr = 0;
 
   *esp -= sizeof(int);
-  memcpy(*esp, &returnAddress, sizeof(int));
+  memcpy(*esp, &returnAddr, sizeof(int));
 
-  /* Push addresses of parameters onto stack 
-      Remember they must be pushed from right to left*/
-  //for (int i = argc-1; i >= 0; i--)
-  for (int i = 0; i <= argc-1; i++)
+  for (int i = argc-1; i >= 0; i--)
   {
     *esp -= sizeof(int);
     memcpy(*esp, &argv[i], sizeof(int));
   }
-  
-  
+
   /* Write the address of argv */
   int ptr = *esp;
   *esp -= sizeof(int);
@@ -559,12 +543,12 @@ setup_stack (void **esp, char* file_name)
 
   /* Write 0 as return address */
   *esp -= sizeof(int);
-  memcpy(*esp, &returnAddress, sizeof(int));
+  memcpy(*esp, &returnAddr, sizeof(int));
 
   free(argv);
   free(fn_cpy);
-  hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
-
+  //hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
+  
   return success;
 }
 
