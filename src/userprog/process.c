@@ -104,11 +104,14 @@ start_process (void *file_name_)
    does nothing. 
    
    Reference code: https://github.com/ChristianJHughes/pintos-project2/blob/master/pintos/src/userprog/process.c
+
+   new code reference: https://github.com/Waqee/Pintos-Project-2/blob/master/src/userprog/process.c
    */
 int
 process_wait (tid_t child_tid UNUSED) 
 {
 
+  /*
   struct thread* tchild = NULL;
 
   struct list_elem* iter; //Element to iterate child list with
@@ -134,7 +137,37 @@ process_wait (tid_t child_tid UNUSED)
   sema_down(&tchild->child_sema);
 
   return &tchild->exit_status;
+  */
 
+  struct list_elem *e;
+
+  struct child *ch = NULL;
+  struct list_elem *e1 = NULL;
+  struct thread *curThread = thread_current();
+
+  for (e = list_begin(&thread_current()->child_process_list); e != list_end(&thread_current()->child_process_list);
+        e = list_next(e))
+  {
+    struct child *f = list_entry(e, struct child, elem);
+    if (f->tid == child_tid)
+    {
+      ch = f;
+      e1 = e;
+    }
+  }
+
+  if (!ch || !e1)
+    return -1;
+
+  curThread->waitingon = ch->tid;
+
+  if (!ch->used)
+    sema_down(&thread_current()->child_sema);
+
+  int temp = ch->exit_error;
+  list_remove(e1);
+
+  return temp;
 }
 
 /* Free the current process's resources. 

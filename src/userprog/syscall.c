@@ -220,7 +220,26 @@ void systemCall_halt(void)
 
 void systemCall_exit(int exitStatus)
 {
+
+  struct list_elem* e;
+
+  for (e = list_begin(&thread_current()->parent->child_process_list); e != list_end(&thread_current()->parent->child_process_list);
+        e = list_next(e))
+  {
+    struct child* f = list_entry(e, struct child, elem);
+    if(f->tid == thread_current()->tid)
+    {
+      f->used = true;
+      f->exit_error = exitStatus;
+    }
+  }
+
   thread_current()->exit_status = exitStatus;
+
+  if(thread_current()->parent->waitingon == thread_current()->tid)
+    sema_up(&thread_current()->parent->child_sema);
+
+    
   printf("%s is exiting with status: %d\n", thread_current()->name, exitStatus);
   thread_exit();
 }

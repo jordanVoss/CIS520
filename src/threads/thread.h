@@ -108,8 +108,10 @@ struct thread
     struct list file_descriptors;       /* List of file decriptore */
     struct list child_process_list;     /* List of child processes */
     struct list_elem child_process;     /* Element for child process, for iteration */
+    struct thread* parent;              /* Parent of the trhead */
     struct semaphore child_sema;        /* Used to put parent thread to sleep */
     struct file *my_file;               /* Threads File */
+    int waitingon;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -118,6 +120,13 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+  };
+
+  struct child {
+     int tid;
+     struct list_elem elem;
+     int exit_error;
+     bool used;
   };
 
 /* If false (default), use round-robin scheduler.

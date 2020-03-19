@@ -186,6 +186,11 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  struct child* c = malloc(sizeof(struct child));
+  c->tid = tid;
+  c->exit_error = t->exit_status;
+  c->used = false;
+  list_push_back(&running_thread()->child_process_list, &c->elem);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -289,6 +294,12 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
+
+  while (!list_empty(&thread_current()->child_process_list))
+  {
+    struct process_file *f = list_entry(list_pop_front(&thread_current()->child_process_list), struct child, elem);
+    free(f);
+  }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -472,7 +483,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->file_descriptors);
   list_init(&t->child_process_list);
   sema_init(&t->child_sema, 0);
+  t->parent = running_thread();
   t->my_file = NULL;
+  t->waitingon = 0;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
