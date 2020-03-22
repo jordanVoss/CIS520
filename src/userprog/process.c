@@ -162,6 +162,7 @@ start_process (void *file_name_)
 }
 
 
+<<<<<<< HEAD
 /*
 Builds the stack using the steps talked about in the linked video
 https://www.youtube.com/watch?v=OE79vNZp1KI
@@ -172,6 +173,15 @@ arguments - Array of parsed tokens
 esp - The pointer to esp for building stack
 */
 void buildStack(int argc, char** arguments, void** esp)
+=======
+   This function will be implemented in problem 2-2.  For now, it
+   does nothing. 
+   
+   Reference code: https://github.com/ChristianJHughes/pintos-project2/blob/master/pintos/src/userprog/process.c
+   */
+int
+process_wait (tid_t child_tid UNUSED) 
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 {
     int i, //Used for iteration
         j, //Used for iteration
@@ -180,6 +190,7 @@ void buildStack(int argc, char** arguments, void** esp)
     
     int addressesOfParameters[7];
 
+<<<<<<< HEAD
     /* Step 1: Push words onto the stack */
     for(i = argc; i >= 0; i--)
     {
@@ -192,6 +203,9 @@ void buildStack(int argc, char** arguments, void** esp)
       addressesOfParameters[i] = (int)*esp;
       argsLength += strlen(arguments[i]) + 1;
     }
+=======
+  struct thread* tchild = NULL;
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 
     /* Step 2: Perform modulo on the stack */
     if(argsLength % 4 != 0)
@@ -218,6 +232,7 @@ void buildStack(int argc, char** arguments, void** esp)
     *esp -= 4;
     **(uint32_t **)esp = (uint32_t)((int)*esp + 4);
 
+<<<<<<< HEAD
     /* Step 6: Push argc */
     *esp -= 4;
     **(int **)esp = argc;
@@ -263,6 +278,10 @@ process_wait (tid_t child_tid UNUSED)
   list_remove(&childThread->child_process_elem);
   sema_up(&childThread->exit_sema);
   return exitStatus;
+=======
+  return &tchild->exit_status;
+
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 }
 
 /* Free the current process's resources. 

@@ -110,6 +110,7 @@ struct thread
     struct thread* parent;              /* Parent of the thread */
     struct list_elem child_process_elem;     /* Element for child process, for iteration */
     struct list child_process_list;     /* List of child processes */
+<<<<<<< HEAD
     
     /* What were the status of the load and exit procedures */
     int wasLoadedFlag;
@@ -120,6 +121,11 @@ struct thread
     struct semaphore exit_sema;        /* Used to put parent thread to sleep */
     struct semaphore wait_sema;        /* Is the thread currently waiting */
     struct semaphore load_sema;        /* Current load state either 0 or 1 */
+=======
+    struct list_elem child_process;     /* Element for child process, for iteration */
+    struct semaphore child_sema;        /* Used to put parent thread to sleep */
+    struct file *my_file;               /* Threads File */
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 
 
     /* Owned by thread.c. */

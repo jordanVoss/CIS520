@@ -183,9 +183,12 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+<<<<<<< HEAD
 
   /* Disable interrupts to setup stacks */
   enum intr_level old_level = intr_disable();
+=======
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -475,6 +478,7 @@ init_thread (struct thread *t, const char *name, int priority)
   
 
   list_init(&t->child_process_list);
+<<<<<<< HEAD
   t->parent = running_thread();
   t->wasLoadedFlag = 0;
   t->exit = 0;
@@ -485,6 +489,14 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->load_sema, 0);
   list_push_back(&running_thread()->child_process_list, &t->child_process_elem);
   #endif
+=======
+  sema_init(&t->child_sema, 0);
+  t->my_file = NULL;
+
+  old_level = intr_disable ();
+  list_push_back (&all_list, &t->allelem);
+  intr_set_level (old_level);
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

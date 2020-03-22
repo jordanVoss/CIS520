@@ -309,6 +309,7 @@ void systemCall_halt(void)
 
 void systemCall_exit(int exitStatus)
 {
+<<<<<<< HEAD
   struct thread* cur = thread_current();
   cur->exit = exitStatus;
 
@@ -329,6 +330,9 @@ void systemCall_exit(int exitStatus)
 
 
   /* Prints the exit stuff: Required by proj */
+=======
+  thread_current()->exit_status = exitStatus;
+>>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
   printf("%s is exiting with status: %d\n", thread_current()->name, exitStatus);
   thread_exit();
 }
