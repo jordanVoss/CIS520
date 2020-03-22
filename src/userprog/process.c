@@ -85,7 +85,8 @@ process_execute (const char *file_name)
   tid = thread_create (file_name_start, PRI_DEFAULT, start_process, fn_copy);
   free(file_name_start);
 
-  sema_down(&thread_current()->load_sema);
+  struct thread* cur = thread_current();
+  sema_down(&cur->load_sema);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
