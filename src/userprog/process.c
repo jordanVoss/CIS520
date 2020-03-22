@@ -19,6 +19,19 @@
 #include "threads/vaddr.h"
 
 
+
+
+
+Hi jordan! How are you? :) :P hahahahaha
+
+
+
+
+
+
+
+
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -35,12 +48,12 @@ struct thread* findChildThread(int pid)
   for(elem = list_begin(&currentThread->child_process_list); elem != list_end(&currentThread->child_process_list); elem = list_next(elem))
   {
     struct thread* t = list_entry(elem, struct thread, elem);
-    if(pid == t->tid)
+    if(t->tid == pid)
       /*Return the found thread */
       return t;
   }
 
-  /* Child thread with the passed in pid not found */
+  /* Thread with the passed in pid not found */
   return NULL;
 }
 
