@@ -26,11 +26,6 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-
-/* Lock used for filesys applications */
-struct lock filesys_lock; 
-
-
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -101,32 +96,33 @@ struct thread
     struct list_elem elem;              /* List element. */
    
 
-
-    int exit_status;
-    //------------USED FOR PROJECT 2-----------------//
-    int fd;                             /* Integer for file descriptors */
-    struct list file_descriptors;       /* List of file decriptore */
-    struct list child_process_list;     /* List of child processes */
-    struct list_elem child_process;     /* Element for child process, for iteration */
-    struct thread* parent;              /* Parent of the trhead */
-    struct semaphore child_sema;        /* Used to put parent thread to sleep */
-    struct file *my_file;               /* Threads File */
-    int waitingon;
-
-#ifdef USERPROG
+   //------------USED FOR PROJECT 2-----------------//
+   #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+
+    /* File descriptor variables */
+    struct file *file_table[128];               /* Threads File */
+    int fd;                             /* Integer for file descriptors */
+
+    /* Child process stuff */
+    struct thread* parent;              /* Parent of the thread */
+    struct list_elem child_process_elem;     /* Element for child process, for iteration */
+    struct list child_process_list;     /* List of child processes */
+    
+    /* What were the status of the load and exit procedures */
+    int loadStatus;
+    int exitStatus;
+    int exit;
+    
+    /* Binary semaphores to help with logic */
+    struct semaphore exit_sema;        /* Used to put parent thread to sleep */
+    struct semaphore wait_sema;        /* Is the thread currently waiting */
+    struct semaphore load_sema;        /* Current load state either 0 or 1 */
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
-  };
-
-  struct child {
-     int tid;
-     struct list_elem elem;
-     int exit_error;
-     bool used;
   };
 
 /* If false (default), use round-robin scheduler.

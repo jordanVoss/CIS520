@@ -57,6 +57,7 @@ int systemCall_write(int fd, void *buffer, unsigned size);
 void systemCall_seek(int fd, unsigned position);
 unsigned systemCall_tell(int fd);
 void systemCall_close(int fd);
+void checkAddress(void* address);
 struct process_file *search(struct list* files, int fd);
 
 
@@ -78,14 +79,26 @@ process_file {
   int fd;                            //File Descriptor
 };
 
+void checkAddress(void* address)
+{
+  if(!is_user_vaddr(address))
+    exit(-1);
+}
+
+
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  /* These will be passed to the system call */
+  int argCount;
+  int *args;
+
   /* Gets the effective address of esp */
   int *esp = (int *)f->esp;
-
+  checkAddress(esp);
+  
   /* Dereference esp to get the system call */  
-  int system_call = *esp;
+  int system_call = (int)*esp;
   
   /* Switch for finding the correct method
     * for the system_call param */
@@ -102,7 +115,7 @@ syscall_handler (struct intr_frame *f UNUSED)
        Status: Needs implemented
     */
     case(SYS_EXIT):;
-      int exitStatus = *(esp + 1);
+      checkAddress((void*)(esp + 1));
       systemCall_exit(exitStatus);
       break;
 
