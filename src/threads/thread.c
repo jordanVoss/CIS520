@@ -191,6 +191,10 @@ thread_create (const char *name, int priority,
   c->exit_error = t->exit_status;
   c->used = false;
   list_push_back(&running_thread()->child_process_list, &c->elem);
+  for (int i = 0; i < 128; i++)
+  {
+    t->file_table[i] = NULL;
+  }
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -295,11 +299,13 @@ thread_exit (void)
   process_exit ();
 #endif
 
+  /*
   while (!list_empty(&thread_current()->child_process_list))
   {
     struct process_file *f = list_entry(list_pop_front(&thread_current()->child_process_list), struct child, elem);
     free(f);
   }
+  */
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -479,7 +485,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  t->fd = 2; //Used for project 2, file descriptor
+  t->fd = 3; //Used for project 2, file descriptor
   list_init(&t->file_descriptors);
   list_init(&t->child_process_list);
   sema_init(&t->child_sema, 0);

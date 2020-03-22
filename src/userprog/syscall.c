@@ -202,12 +202,20 @@ syscall_handler (struct intr_frame *f UNUSED)
     */
     case(SYS_SEEK):;
       //printf("\n\nI am in SYS_SEEK\n\n");
+      int arg15 = *(esp + 1);
+      unsigned arg16 = *(esp + 2);
+      check_address(arg15);
+      check_address(arg16);
+      systemCall_seek(arg15, arg16);
       break;
 
     /* System Call: Create
        Status: Needs implemented
     */  
     case(SYS_TELL):;
+      int arg17 = *(esp + 1);
+      check_address(arg17);
+      f->eax = systemCall_tell(arg17);
       //printf("\n\nI am in SYS_TELL\n\n");
       
       break;
@@ -216,7 +224,9 @@ syscall_handler (struct intr_frame *f UNUSED)
        Status: Needs implemented
     */
     case(SYS_CLOSE):;
-      //printf("\n\nI am in SYS_CLOSE\n\n");
+      int arg18 = *(esp + 1);
+      check_address(arg18);
+      systemCall_close(arg18);
       break;
 
 
@@ -234,7 +244,7 @@ void systemCall_halt(void)
 
 void systemCall_exit(int exitStatus)
 {
-
+  /*
   struct list_elem* e;
 
   for (e = list_begin(&thread_current()->parent->child_process_list); e != list_end(&thread_current()->parent->child_process_list);
@@ -253,7 +263,17 @@ void systemCall_exit(int exitStatus)
   if(thread_current()->parent->waitingon == thread_current()->tid)
     sema_up(&thread_current()->parent->child_sema);
 
-    
+  */
+  thread_current()->exit_status = exitStatus;
+
+  for (int i = 3; i < 128; i++)
+  {
+    if (thread_current()->file_table[i] != NULL)
+    {
+      systemCall_close(i);
+    }
+  }
+
   printf("%s: exit(%d)\n", thread_current()->name, exitStatus);
   thread_exit();
 }
@@ -327,7 +347,46 @@ bool systemCall_remove(const char *file)
 int systemCall_open(const char *file)
 {
   lock_acquire(&filesys_lock);
+
+  struct thread* cur = thread_current();
+  int fd, i;
+
+  if (file == NULL)
+  {
+    //lock_release(&filesys_lock);
+    fd = -1;
+  }
+  else
+  {
+    struct file* open = filesys_open(file);
+    if (open != NULL)
+    {
+      if (strcmp(cur->name, file) == 0)
+      {
+        file_deny_write(open);
+      }
+      cur->file_table[cur->fd] = open;
+      fd = cur->fd;
+      for (i = 3; i < 128; i++)
+      {
+        if (cur->file_table[i] == NULL)
+        {
+          cur->fd = i;
+          break;
+        }
+      }
+    }
+    else
+    {
+      //lock_release(&filesys_lock);
+      fd = -1;
+    }
+  }
+  lock_release(&filesys_lock);
+  return fd;
   
+
+  /*
   struct file* f = filesys_open(file); //Get the actual file
 
   //Check if the file is NULL
@@ -345,6 +404,7 @@ int systemCall_open(const char *file)
 
   lock_release(&filesys_lock); //Unlock the system
   return pfile->fd;
+  */
 
   //NEED TO INIT FILE_DESCRIPTORS LIST IN THREADS.C
 }
@@ -354,64 +414,121 @@ int systemCall_open(const char *file)
 //SEEK_END is undeclared
 int systemCall_filesize(int fd)
 {
-  /*
-  int size = lseek(fd, 0, SEEK_END);
+  int size;
+  struct file* read = thread_current()->file_table[fd];
+
+  size = file_length(read);
   return size;
-  */
- 
- return -1;
 }
 
 
 int systemCall_read(int fd, void *buffer, unsigned size)
 {
-  int temp;
-  return temp;
+  lock_acquire(&filesys_lock);
+
+  struct file* read;
+  struct thread* cur = thread_current();
+  int read_bytes = 0;
+  int i;
+
+  if (fd == 0)
+  {
+    for (i = 0; (unsigned)i < size; i++)
+    {
+      *((char*)buffer + i) = input_getc();
+    }
+    read_bytes = size;
+  }
+  else
+  {
+    if (cur->file_table[fd] != NULL)
+    {
+      read = cur->file_table[fd];
+      read_bytes = file_read(read, buffer, size);
+    }
+    else
+    {
+      read_bytes = -1;
+    }
+  }
+  lock_release(&filesys_lock);
+  return read_bytes;
 }
 
 int systemCall_write(int fd, void *buffer, unsigned size)
 {
   lock_acquire(&filesys_lock);
 
+  struct file* write;
+  struct thread* cur = thread_current();
+  int write_bytes = 0;
+
   
   if (fd == 1)
   {
     putbuf(buffer, size);
-    lock_release(&filesys_lock);
-    return size;
+    write_bytes = size;
+    //lock_release(&filesys_lock);
+    //return size;
   }
-  
-  struct process_file *p_file = search(&thread_current()->file_descriptors, fd);
-
-  if (p_file == NULL)
+  else
   {
-    lock_release(&filesys_lock);
-    return -1;
+    if (cur->file_table[fd] != NULL)
+    {
+      write = cur->file_table[fd];
+      write_bytes = file_write(write, buffer, size);
+    }
+    else
+    {
+      write_bytes = 0;
+    }
   }
-
 
   lock_release(&filesys_lock);
-  return file_write(p_file->file_ptr, buffer, size);
+  return write_bytes;
+  //return file_write(p_file->file_ptr, buffer, size);
 }
 
 
 void systemCall_seek(int fd, unsigned position)
 {
-  //more gold please
+  struct thread* cur = thread_current();
+
+  if (cur->file_table[fd] == NULL)
+    systemCall_exit(-1);
+  else
+  {
+    file_seek(cur->file_table[fd], position);
+  }
 }
 
 
 unsigned systemCall_tell(int fd)
 {
-  unsigned temp;
-  return temp;
+  struct thread* cur = thread_current();
+  if (cur->file_table[fd] == NULL)
+  {
+    systemCall_exit(-1);
+  }
+  else
+  {
+    return file_tell(cur->file_table[fd]);
+  }
 }
 
 
 ///
 void systemCall_close(int fd)
 {
-  //last bit of gold
+  if (thread_current()->file_table[fd] == NULL)
+  {
+    systemCall_exit(-1);
+  }
+  else
+  {
+    file_close(thread_current()->file_table[fd]);
+    thread_current()->file_table[fd] = NULL;
+  }
 }
 
 struct process_file *search(struct list* files, int fd)
