@@ -37,6 +37,8 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -91,6 +93,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init(&filesys_lock);
   list_init (&ready_list);
   list_init (&all_list);
 
@@ -183,12 +186,11 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-<<<<<<< HEAD
-
-  /* Disable interrupts to setup stacks */
-  enum intr_level old_level = intr_disable();
-=======
->>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
+  struct child* c = malloc(sizeof(struct child));
+  c->tid = tid;
+  c->exit_error = t->exit_status;
+  c->used = false;
+  list_push_back(&running_thread()->child_process_list, &c->elem);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -205,10 +207,9 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  intr_set_level(old_level);
-
   /* Add to run queue. */
   thread_unblock (t);
+
   return tid;
 }
 
@@ -293,6 +294,12 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
+
+  while (!list_empty(&thread_current()->child_process_list))
+  {
+    struct process_file *f = list_entry(list_pop_front(&thread_current()->child_process_list), struct child, elem);
+    free(f);
+  }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -459,6 +466,8 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  enum intr_level old_level;
+
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -469,34 +478,18 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  list_push_back(&all_list, &t->allelem);
 
-  #ifdef USERPROG
-  t->fd = 3; //Used for project 2, file descriptor
-  for(int i = 0; i < 128; i++)
-    t->file_table[i] = NULL;
-  
-
+  t->fd = 2; //Used for project 2, file descriptor
+  list_init(&t->file_descriptors);
   list_init(&t->child_process_list);
-<<<<<<< HEAD
-  t->parent = running_thread();
-  t->wasLoadedFlag = 0;
-  t->exit = 0;
-
-  /* Initialize all of the threads semaphores to 0 */
-  sema_init(&t->exit_sema, 0); 
-  sema_init(&t->wait_sema, 0);
-  sema_init(&t->load_sema, 0);
-  list_push_back(&running_thread()->child_process_list, &t->child_process_elem);
-  #endif
-=======
   sema_init(&t->child_sema, 0);
+  t->parent = running_thread();
   t->my_file = NULL;
+  t->waitingon = 0;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
->>>>>>> parent of d406d1c... rewrote exit procedures, still not closing the program
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
