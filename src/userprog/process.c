@@ -193,7 +193,7 @@ void buildStack(int argc, char** arguments, void** esp)
     /* Step 2: Perform modulo on the stack */
     if(argsLength % 4 != 0)
     {
-      for(i = (((argsLength / 4) + 1) * 4) - argsLength) i > 0; i--)
+      for(i = (((argsLength / 4) + 1) * 4) - argsLength; i > 0; i--)
       {
         *esp -= 1;
         **(uint32_t **)esp = 0;

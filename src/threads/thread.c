@@ -483,7 +483,7 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->exit_sema, 0); 
   sema_init(&t->wait_sema, 0);
   sema_init(&t->load_sema, 0);
-  list_push_back(&running_thread()->child_list, &t->child_elem);
+  list_push_back(&running_thread()->child_process_list, &t->child_process_elem);
   #endif
 }
 
