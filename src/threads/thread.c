@@ -96,7 +96,7 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  read (initial_thread, "main", PRI_DEFAULT);
+  init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -476,7 +476,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   list_init(&t->child_process_list);
   t->parent = running_thread();
-  t->loadStatus = 0;
+  t->wasLoadedFlag = 0;
   t->exit = 0;
 
   /* Initialize all of the threads semaphores to 0 */

@@ -21,17 +21,6 @@
 
 
 
-
-Hi jordan! How are you? :) :P hahahahaha
-
-
-
-
-
-
-
-
-
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -61,7 +50,7 @@ struct thread* findChildThread(int pid)
   Needed to avoid resource waste */
 void removeChildThread(struct thread *child)
 {
-  list_remove(&child->child_elem);
+  list_remove(&child->child_process_elem);
   palloc_free_page(child);
 }
 
@@ -96,7 +85,7 @@ process_execute (const char *file_name)
   tid = thread_create (file_name_start, PRI_DEFAULT, start_process, fn_copy);
   free(file_name_start);
 
-  sema_down(&thread_current->load_sema);
+  sema_down(&thread_current()->load_sema);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -265,12 +254,12 @@ process_wait (tid_t child_tid UNUSED)
   sema_down(&childThread->wait_sema);
   
   /* If child has already exited then return */
-  if(child->exit != 1)
+  if(childThread->exit != 1)
     return -1;
   
   /* Else remove the child process */
-  int exitStatus = child->exit_status;
-  list_remove(&child->child_process_elem);
+  int exitStatus = childThread->exitStatus;
+  list_remove(&childThread->child_process_elem);
   sema_up(&childThread->exit_sema);
   return exitStatus;
 }
@@ -286,7 +275,7 @@ process_exit (void)
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = cur->file_table;
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -385,7 +374,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, char* file_name);
+static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,

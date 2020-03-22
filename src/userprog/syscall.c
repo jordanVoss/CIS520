@@ -59,7 +59,7 @@ void
 address_check(void *address) {
 
   if(!is_user_vaddr(address)) {
-    exit(-1);
+    systemCall_exit(-1);
   }
 
 }
@@ -274,7 +274,7 @@ syscall_handler (struct intr_frame *f UNUSED)
        Status: Needs implemented
     */  
     case SYS_TELL:
-    int i = 0;
+      //int i = 0;
       printf("\n\nI am in SYS_TELL\n\n");
       arguments = (int*)malloc(1*sizeof(int));
       address_check((void*)(esp+1));
@@ -314,9 +314,17 @@ void systemCall_exit(int exitStatus)
 
   /* Iterate through the open pages and close them all
     to prevent resource leakage */
-  for(int i = 0; i < 128; i++)
-    if(cur->file_table[i] != NULL)
-      close(i);
+  if (cur != NULL)
+  {
+    for(int i = 0; i < 128; i++)
+    {
+      if(cur->file_table[i] != NULL)
+      {
+        file_close(cur->file_table[i]);
+        cur->file_table[i] = NULL;
+      }
+    }
+  }
 
 
 
@@ -394,7 +402,7 @@ int systemCall_open(const char *file)
   pfile->file_ptr = f;
   pfile->fd = thread_current()->fd;
   thread_current()->fd++; //Increment file descriptor
-  list_push_front(&thread_current()->file_descriptors, &pfile->file_elem); //Add the process file to the thread lsit of file_descriptors
+  list_push_front(&thread_current()->fd, &pfile->file_elem); //Add the process file to the thread lsit of file_descriptors
   lock_release(&filesys_lock); //Unlock the system
   return pfile->fd;
   //NEED TO INIT FILE_DESCRIPTORS LIST IN THREADS.C
@@ -426,7 +434,7 @@ int systemCall_write(int fd, void *buffer, unsigned size)
     return size;
   }
   
-  struct process_file *p_file = search(&thread_current()->file_descriptors, fd);
+  struct process_file *p_file = search(&thread_current()->fd, fd);
   if (p_file == NULL)
   {
     lock_release(&filesys_lock);

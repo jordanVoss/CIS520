@@ -100,6 +100,7 @@ struct thread
    #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    #endif
 
     /* File descriptor variables */
     struct file *file_table[128];               /* Threads File */
@@ -111,7 +112,7 @@ struct thread
     struct list child_process_list;     /* List of child processes */
     
     /* What were the status of the load and exit procedures */
-    int loadStatus;
+    int wasLoadedFlag;
     int exitStatus;
     int exit;
     
@@ -119,7 +120,7 @@ struct thread
     struct semaphore exit_sema;        /* Used to put parent thread to sleep */
     struct semaphore wait_sema;        /* Is the thread currently waiting */
     struct semaphore load_sema;        /* Current load state either 0 or 1 */
-#endif
+
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
