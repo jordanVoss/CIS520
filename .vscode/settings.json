@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "atomic": "c",
+        "memory_resource": "c",
+        "*.inc": "c"
+    }
+}
