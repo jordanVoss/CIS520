@@ -7,9 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define EXIT_SUCCESS 0
-#define EXIT_FAILURE 8
-
 static bool getcwd (char *cwd, size_t cwd_size);
 
 int

@@ -1,578 +1,588 @@
-/*
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
-static void syscall_handler (struct intr_frame *);
-
-void
-syscall_init (void) 
-{
-  intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-}
-
-static void
-syscall_handler (struct intr_frame *f UNUSED) 
-{
-  printf ("system call!\n");
-  thread_exit ();
-}
-*/
-#include "userprog/syscall.h"
-#include <stdio.h>
-#include <syscall-nr.h>
-#include "threads/interrupt.h"
-#include "threads/thread.h"
-#include "threads/vaddr.h"
-#include "threads/palloc.h"
-#include "threads/synch.h"
 #include "devices/shutdown.h"
-#include "devices/input.h"
-#include "userprog/pagedir.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
-#include "userprog/exception.h"
-#include "lib/string.h"
-#include "lib/user/syscall.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-#include "filesys/free-map.h"
-#include "filesys/inode.h"
-#include "filesys/directory.h"
+#include <string.h>
 #include "devices/input.h"
-#include "threads/pte.h"
+#include "threads/malloc.h"
 
+/* System call handler declaration */
 static void syscall_handler (struct intr_frame *);
-void systemCall_halt(void);
-void systemCall_exit(int status);
-pid_t systemCall_exec(const char *comd_line);
-int systemCall_wait(pid_t pid);
-bool systemCall_create(const char *file, unsigned initial_size);
-bool systemCall_remove(const char *file);
-int systemCall_open(const char *file);
-int systemCall_filesize(int fd);
-int systemCall_read(int fd, void *buffer, unsigned size);
-int systemCall_write(int fd, void *buffer, unsigned size);
-void systemCall_seek(int fd, unsigned position);
-unsigned systemCall_tell(int fd);
-void systemCall_close(int fd);
-struct process_file *search(struct list* files, int fd);
 
+/* To protect the file disk, we use a binary semaphore to prevent file conflicts */
+struct semaphore filesys_sema;
 
-
-void
-syscall_init (void) 
+/*
+* Method: syscall_init
+* Purpose: Initializes the binary semaphore, sets the syscall handler method pointer
+*/
+void syscall_init (void)
 {
-  lock_init(&filesys_lock);
+  sema_init(&filesys_sema, 0);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-//-----------------------------------
-//Struct used to keep track of file descriptors ofr open and closed
-//fd is a positive int, but never 0 or 1
-struct
-process_file {
-  struct file* file_ptr;             //Pointer to the file being used
-  struct list_elem file_elem;        //List element
-  int fd;                            //File Descriptor
-};
 
-static void
-syscall_handler (struct intr_frame *f UNUSED) 
+/*
+* Method: checkAddress
+* Purpose: Ensures that esp is in the memory space of the thread and not in the kernels.
+*/
+void checkAddress(void *addr)
 {
-  /* Gets the effective address of esp */
-  int *esp = (int *)f->esp;
-
-  /* Dereference esp to get the system call */  
-  int system_call = *esp;
-  
-  /* Switch for finding the correct method
-    * for the system_call param */
-  switch (system_call)
-  {
-    /* System Call: Halt
-       Status: Done
-    */
-    case(SYS_HALT):;
-      systemCall_halt();
-      break;
-    
-    /* System Call: Exit
-       Status: Needs implemented
-    */
-    case(SYS_EXIT):;
-      int exitStatus = *(esp + 1);
-      check_address(exitStatus);
-      systemCall_exit(exitStatus);
-      break;
-
-    /* System Call: Exec
-       Status: Think we are correct
-    */
-    case(SYS_EXEC):;
-      char* arg2 = *(esp + 1); //gets the argument off of the stack
-      check_address(arg2);
-      pid_t EAX = systemCall_exec(arg2);  //accuires output from method call
-      f->eax = (uint32_t)EAX;  //assigns output to volitile register
-      break;
-
-    /* System Call: Wait
-       Status: Needs implemented
-    */
-    case(SYS_WAIT):;
-      pid_t arg3 = *(esp + 1);
-      check_address(arg3);
-      f->eax = systemCall_wait(arg3);
-      break;
-
-    /* System Call: Create
-       Status: Needs implemented
-    */
-    case(SYS_CREATE):;
-      char *arg4 = *(esp + 1);
-      unsigned arg5 = *(esp + 2);
-      check_address(arg4);
-      check_address(arg5);
-      f->eax = (uint32_t)systemCall_create(arg4, arg5);
-      break;
-
-    /* System Call: Remove
-       Status: Needs implemented
-    */
-    case(SYS_REMOVE):;
-      char *arg6 = *(esp + 1);
-      check_address(arg6);
-      f->eax = (uint32_t)systemCall_remove(arg6);
-      break;
-
-    /* System Call: Open
-       Status: Think we are correct
-    */
-    case(SYS_OPEN):;
-      char *arg7 = *(esp + 1);
-      check_address(arg7);
-      //char *tempvar = *(esp + 2);
-      //printf("%s\n\n",&tempvar);
-      f->eax = (uint32_t)systemCall_open(arg7);
-      break;
-    
-    /* System Call: Filesize
-       Status: Needs implemented
-    */
-    case(SYS_FILESIZE):;
-      int arg8 = *(esp + 1);
-      check_address(arg8);
-      f->eax = (uint32_t)systemCall_filesize(arg8);
-      break;
-
-    /* System Call: Read
-       Status: Needs implemented
-    */
-    case(SYS_READ):;
-      int arg9 = *(esp + 1);
-      void *arg10 = *(esp + 2);
-      unsigned arg11 = *(esp + 3);
-      check_address(arg9);
-      check_address(arg10);
-      check_address(arg11);
-      f->eax = (uint32_t)systemCall_read(arg9, arg10, arg11);
-      break;
-
-    /* System Call: Write
-       Status: Actively working
-    */  
-    case(SYS_WRITE):;
-      //int arg12 = *((int*)*(esp + 1));
-      //void *arg13 = (void*) (*((int*)*(esp + 2)));
-      //unsigned arg14 = *((unsigned*)*(esp + 3));
-      int arg12 = *(esp + 1);
-      void *arg13 = *(esp + 2);
-      unsigned arg14 = *(esp + 3);
-      check_address(arg12);
-      check_address(arg13);
-      check_address(arg14);
-      //unsigned arg14 = 2;
-      f->eax = systemCall_write(arg12, arg13, arg14);
-      //printf("\n\nI am in SYS_WRITE\n\n");
-      break;
-
-    /* System Call: Create
-       Status: Needs implemented
-    */
-    case(SYS_SEEK):;
-      //printf("\n\nI am in SYS_SEEK\n\n");
-      int arg15 = *(esp + 1);
-      unsigned arg16 = *(esp + 2);
-      check_address(arg15);
-      check_address(arg16);
-      systemCall_seek(arg15, arg16);
-      break;
-
-    /* System Call: Create
-       Status: Needs implemented
-    */  
-    case(SYS_TELL):;
-      int arg17 = *(esp + 1);
-      check_address(arg17);
-      f->eax = systemCall_tell(arg17);
-      //printf("\n\nI am in SYS_TELL\n\n");
-      
-      break;
-
-    /* System Call: Create
-       Status: Needs implemented
-    */
-    case(SYS_CLOSE):;
-      int arg18 = *(esp + 1);
-      check_address(arg18);
-      systemCall_close(arg18);
-      break;
-
-
-    default:;
-      printf("Default %d\n", *esp);
-  }
+  if (!is_user_vaddr(addr))
+    exit(-1);
 }
 
-/* The halt system call */
-void systemCall_halt(void)
+
+/*
+* Method: getArguments
+* Purpose: Grab all the arguments needed for the syscall
+*/
+void getArguments(void *esp, int *arg, int count)
+{
+  /* Grab all of the arguments for the current thread */
+  for (int i = 0; i < count; i++)
+  {
+    esp += 4;               /* Since the arguments are integer, integers take 4 bytes of memory. We increment esp by 4 */
+    checkAddress(esp);     /* Ensure address is valid. Will not return if it is not */
+    arg[i]= (int)esp;
+  }
+  esp -= (4 * count);       /* Reset esp to original position */
+}
+
+
+/*
+* Method: systemCall_halt
+* Purpose: Shuts down the system. 
+*/
+void systemCall_halt ()
 {
   shutdown_power_off();
 }
 
 
-void systemCall_exit(int exitStatus)
+/*
+* Method: exit 
+* Purpose: Closes all of the active pages for the thread. Assigns the exit status, and sends to kernel
+              0 means exited fine
+              anything else means something happened
+*/
+void exit (int status)
 {
-  /*
-  struct list_elem* e;
+  struct thread* currentThread = thread_current();
+  currentThread->exit_status = status;
 
-  for (e = list_begin(&thread_current()->parent->child_process_list); e != list_end(&thread_current()->parent->child_process_list);
-        e = list_next(e))
+  for (int i = 3; i < 128; i++) 
   {
-    struct child* f = list_entry(e, struct child, elem);
-    if(f->tid == thread_current()->tid)
-    {
-      f->used = true;
-      f->exit_error = exitStatus;
-    }
+      if (currentThread->file_table[i] != NULL) 
+      {
+          file_close(currentThread->file_table[i]);
+          currentThread->file_table[i] = NULL;
+      }
   }
-
-  thread_current()->exit_status = exitStatus;
-
-  if(thread_current()->parent->waitingon == thread_current()->tid)
-    sema_up(&thread_current()->parent->child_sema);
-
-  */
-  thread_current()->exit_status = exitStatus;
-
-  for (int i = 3; i < 128; i++)
-  {
-    if (thread_current()->file_table[i] != NULL)
-    {
-      systemCall_close(i);
-    }
-  }
-
-  printf("%s: exit(%d)\n", thread_current()->name, exitStatus);
+  printf("%s: exit(%d)\n", currentThread->name, status); /* This is how the tests wants things printed */
   thread_exit();
 }
 
 
-pid_t systemCall_exec(const char *comd_line)
+/*
+* Method: systemCall_exec
+* Purpose: Runs command passed in through the command line. Creates a child and finds its pid
+*/
+pid_t systemCall_exec (const char *cmd_line) 
 {
-  lock_acquire(&filesys_lock); //Grab the lock
+  pid_t child_pid = (pid_t)process_execute(cmd_line);
+  struct thread *child_proc = findChildThread((int)child_pid);
 
-  //Get the first element of the comand line (filename)
-  char *token = malloc(strlen(comd_line)+1);
-  strlcpy(token, comd_line, strlen(comd_line)+1);
-
-  //Set token to the first element
-  char* save_ptr;
-  token = strtok_r(&token, " ", &save_ptr);
-
-  //Open the file
-  struct file* f = filesys_open(token);
-
-  //If file could not be opened, return -1
-  if (f == NULL)
-  {
-    lock_release(&filesys_lock);
+  if(child_proc == NULL)
     return -1;
-  }
-
-  //close the file
-  file_close(f);
-
-  //release the lock
-  lock_release(&filesys_lock);
-
-  //return the execution of the file
-  return process_execute(comd_line);
+  
+  else
+    if(child_proc->load_flag == 1) /* Check to ensure the child was loaded correctly */
+      return child_pid;
+    
+    else                           /* Child was not loaded correctly */
+      return -1;
 }
 
-/* The wait system call */
-int systemCall_wait(pid_t pid)
+
+/*
+* Method: systemCall_wait
+* Purpose: Threads might need to wait on other threads. This method indicates when the process is finished
+*/
+int systemCall_wait (pid_t pid) 
 {
   return process_wait(pid);
-  //return temp;
-}
-
-/* The create file system call */
-bool systemCall_create(const char *file, unsigned initial_size)
-{
-  lock_acquire(&filesys_lock);
-  
-  bool result = filesys_create(file, initial_size);
-  lock_release(&filesys_lock);
-  return result;
 }
 
 
-bool systemCall_remove(const char *file)
+/*
+* Method: systemCall_create
+* Purpose: Creates a file called file with the size of initial_size
+            This assumes file is not NULL
+*/
+bool systemCall_create (const char *file, unsigned int initial_size) 
 {
-  lock_acquire(&filesys_lock);
-  bool result;
-  if (filesys_remove(*file) == NULL)
-    result = false;
-  else
-    result = true;
-  
-  lock_release(&filesys_lock);
-  
-  return result;
+  if (file == NULL) 
+    exit(-1);
+  else 
+    return filesys_create(file, initial_size);
 }
 
 
-int systemCall_open(const char *file)
+/*
+* Method: systemCall_remove
+* Purpose: Removes the file called file from the file disk
+*/
+bool systemCall_remove (const char *file) 
 {
-  lock_acquire(&filesys_lock);
+  return filesys_remove(file);
+}
 
-  struct thread* cur = thread_current();
-  int fd, i;
 
-  if (file == NULL)
+/*
+* Method: systemCall_open
+* Purpose: Opens the file called 'file' after ensuring that
+              everything is OK
+*/
+int systemCall_open (const char *file)
+{
+  int fd = -1;
+  struct thread *cur = thread_current();
+  
+  /* Grab the lock so we are the only one editing the file system */
+  if(sema_try_down(&filesys_sema))
   {
-    //lock_release(&filesys_lock);
-    fd = -1;
-  }
-  else
-  {
-    struct file* open = filesys_open(file);
-    if (open != NULL)
+    sema_down(&filesys_sema);
+
+    /* If file is NULL just quit */
+    if (file == NULL)
+      fd = -1;
+    
+    /* File is not NULL */
+    else 
     {
-      if (strcmp(cur->name, file) == 0)
+      struct file* open_file = filesys_open (file);
+      
+      /* Ensure the file actually opened */
+      if(open_file != NULL)
       {
-        file_deny_write(open);
-      }
-      cur->file_table[cur->fd] = open;
-      fd = cur->fd;
-      for (i = 3; i < 128; i++)
-      {
-        if (cur->file_table[i] == NULL)
+        if(strcmp(cur->name,file) == 0)
+          file_deny_write(open_file);   /* File is now open. No editing can be done outside of this thread */
+
+        /* Allocate the page table information so the thread can run */
+        cur->file_table[cur->next_fd] = open_file;
+        fd = cur->next_fd;
+        for (int i = 3 ;i < 128; i++) 
         {
-          cur->fd = i;
-          break;
+          if (cur->file_table[i] == NULL) 
+          {
+            cur->next_fd = i;
+            break;
+          }
         }
       }
+
+      /* File didnt open */
+      else
+        fd = -1;
     }
-    else
-    {
-      //lock_release(&filesys_lock);
-      fd = -1;
-    }
+    sema_up(&filesys_sema);
   }
-  lock_release(&filesys_lock);
   return fd;
-  
-
-  /*
-  struct file* f = filesys_open(file); //Get the actual file
-
-  //Check if the file is NULL
-  if (f == NULL)
-  {
-    lock_release(&filesys_lock);
-    return -1;
-  }
-  
-  struct process_file *pfile = malloc(sizeof(struct process_file));
-  pfile->file_ptr = f;
-  pfile->fd = thread_current()->fd;
-  thread_current()->fd++; //Increment file descriptor
-  list_push_front(&thread_current()->file_descriptors, &pfile->file_elem); //Add the process file to the thread lsit of file_descriptors
-
-  lock_release(&filesys_lock); //Unlock the system
-  return pfile->fd;
-  */
-
-  //NEED TO INIT FILE_DESCRIPTORS LIST IN THREADS.C
 }
 
 
-//-------------------------THIS FUNCTION IS NOT WORKING--------------------------//
-//SEEK_END is undeclared
+/*
+* Method: systemCall_filesize
+* Purpose: Grabs the size of the file at fd and returns in bits
+*/
 int systemCall_filesize(int fd)
 {
-  int size;
-  struct file* read = thread_current()->file_table[fd];
-
-  size = file_length(read);
-  return size;
+  struct file* read_file = thread_current()->file_table[fd];
+  return file_length(read_file);
 }
 
 
-int systemCall_read(int fd, void *buffer, unsigned size)
+/*
+* Method: systemCall_read 
+* Purpose: Gets the number bytes till the end of the file
+*/
+int systemCall_read(int fd, void *buffer, unsigned int size)
 {
-  lock_acquire(&filesys_lock);
-
-  struct file* read;
-  struct thread* cur = thread_current();
+  struct file* read_file;
+  struct thread *cur = thread_current();
   int read_bytes = 0;
-  int i;
+  
+  if(sema_try_down(&filesys_sema))
+  {
+    sema_down(&filesys_sema);
+    
+    if(fd == 0)
+    {
+      for(int i = 0; (unsigned)i < size; i++)
+        *((char *)buffer + i) = input_getc();
 
-  if (fd == 0)
-  {
-    for (i = 0; (unsigned)i < size; i++)
+      read_bytes = size;
+    } 
+    else 
     {
-      *((char*)buffer + i) = input_getc();
+      if(cur->file_table[fd] != NULL)
+      {
+        read_file = cur->file_table[fd];
+        read_bytes = file_read(read_file, buffer, size);
+      }
+
+      else
+        read_bytes = -1;
     }
-    read_bytes = size;
+    sema_up(&filesys_sema);
   }
-  else
-  {
-    if (cur->file_table[fd] != NULL)
-    {
-      read = cur->file_table[fd];
-      read_bytes = file_read(read, buffer, size);
-    }
-    else
-    {
-      read_bytes = -1;
-    }
-  }
-  lock_release(&filesys_lock);
   return read_bytes;
 }
 
-int systemCall_write(int fd, void *buffer, unsigned size)
-{
-  lock_acquire(&filesys_lock);
 
-  struct file* write;
-  struct thread* cur = thread_current();
+/*
+* Method: systemCall_write
+* Purpose: Writes the buffer to file descriptor fd and returns the number of bytes written to the file
+            Note: it is possible for not all of the bytes to be written
+*/
+int systemCall_write(int fd, const void *buffer, unsigned int size)
+{
+  struct file* write_file;
+  struct thread *cur = thread_current();
   int write_bytes = 0;
 
-  
-  if (fd == 1)
+  if(sema_try_down(&filesys_sema))
   {
-    putbuf(buffer, size);
-    write_bytes = size;
-    //lock_release(&filesys_lock);
-    //return size;
-  }
-  else
-  {
-    if (cur->file_table[fd] != NULL)
+    sema_down(&filesys_sema);
+    
+    if(fd == 1)
     {
-      write = cur->file_table[fd];
-      write_bytes = file_write(write, buffer, size);
+      putbuf(buffer, size);
+      write_bytes = size;
     }
     else
     {
-      write_bytes = 0;
-    }
-  }
-
-  lock_release(&filesys_lock);
-  return write_bytes;
-  //return file_write(p_file->file_ptr, buffer, size);
-}
-
-
-void systemCall_seek(int fd, unsigned position)
-{
-  struct thread* cur = thread_current();
-
-  if (cur->file_table[fd] == NULL)
-    systemCall_exit(-1);
-  else
-  {
-    file_seek(cur->file_table[fd], position);
-  }
-}
-
-
-unsigned systemCall_tell(int fd)
-{
-  struct thread* cur = thread_current();
-  if (cur->file_table[fd] == NULL)
-  {
-    systemCall_exit(-1);
-  }
-  else
-  {
-    return file_tell(cur->file_table[fd]);
-  }
-}
-
-
-///
-void systemCall_close(int fd)
-{
-  if (thread_current()->file_table[fd] == NULL)
-  {
-    systemCall_exit(-1);
-  }
-  else
-  {
-    file_close(thread_current()->file_table[fd]);
-    thread_current()->file_table[fd] = NULL;
-  }
-}
-
-struct process_file *search(struct list* files, int fd)
-{
-    struct list_elem* elem;
-
-    for (elem = list_begin(files); elem != list_end(files); elem = list_next(files))
-    {
-      struct process_file* file = list_entry(elem, struct process_file, file_elem);
-
-      if (file->fd == fd)
+      if(cur->file_table[fd] != NULL)
       {
-        return file;
+        write_file = cur->file_table[fd];
+        write_bytes = file_write(write_file, buffer, size);
       }
+
+      else
+        write_bytes = 0;
     }
-    return NULL;
+    sema_up(&filesys_sema);
+  }
+  return write_bytes;
 }
 
-/* Removes all files from the list and closes them
-  Reference: https://github.com/rida300/520Pintos/blob/master/cis520/pintos/src/userprog/syscall.c
+
+/*
+* Method: systemCall_seek
+* Purpose: Changes the next byte to be read or written in fd 
 */
-void
-close_all_files(struct list* files)
+void systemCall_seek (int fd, unsigned int position)
 {
-  struct list_elem* e;
+  struct thread *cur = thread_current();
+  
+  /* If the file is NULL just quit */
+  if(cur->file_table[fd] == NULL)
+    exit(-1);
+  
+  /* Change the byte on the file */
+  else
+    file_seek(cur->file_table[fd],position);
+}
 
-  while (!list_empty(files))
+
+/*
+* Method: systemCall_tell
+* Purpose: Returns the next byte to be read or written from fd
+*/
+unsigned int systemCall_tell (int fd)
+{
+  struct thread *cur = thread_current();
+  
+  /* If the file is NULL just quit */
+  if(cur->file_table[fd] == NULL)
+    exit(-1);
+  
+  /* Return the next byte in the descriptor */
+  else
+    return file_tell(cur->file_table[fd]);
+}
+
+
+/*
+* Method: systemCall_close
+* Purpose: Closes the file descriptor fd
+*/
+void systemCall_close (int fd)
+{
+  struct thread *cur = thread_current();
+  
+  if(cur->file_table[fd] != NULL)
   {
-    e = list_pop_front(files);
-    struct process_file *f = list_entry(e, struct process_file, file_elem);
-
-    file_close(f->file_ptr);
-    list_remove(e);
-    free(f);
+    file_close(cur->file_table[fd]);
+    cur->file_table[fd] = NULL;
   }
 }
 
 
-/* Check if the address is valid */
-void
-check_address(void* addr)
+/*
+* Method: syscall_handler
+* Purpose: Switch statement that sets up everything needed for the system calls
+*/
+static void syscall_handler (struct intr_frame *f) 
 {
-  if (!is_user_vaddr(addr))
+  int count;                  /* Number of arguments needed for the system call */
+  int *arg;                   /* List of arguments for the system call */
+
+  int *callAddress = f->esp;  /* Grab the call number */
+  checkAddress(callAddress); /* Ensure valid address */
+  
+  /* Cast into a system call number 
+      Enter the switch based on call number */
+  int SYS_NUM = (int)*callAddress;  
+  switch (SYS_NUM)
   {
-    systemCall_exit(-1);
+    /* The most arguments a syscall needs is three 
+          Declared here for readability */
+    int *argument1;
+    int *argument2;
+    int *argument3;
+    
+    case SYS_HALT:
+      systemCall_halt();
+    break;
+
+    case SYS_EXIT:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1)); 
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grab the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      
+      /* Calls the system call and free the variables */
+      exit(*argument1);
+      free(arg);
+    break;
+
+    case SYS_EXEC:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1));
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_exec((const char *)*argument1);
+      free(arg);
+    break;
+
+    case SYS_WAIT:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress+1));
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+
+      /* Ensures that there is an actual argument */
+      if((int)*argument1 == -1)
+        f->eax = -1;
+      else
+        f->eax = systemCall_wait((int)*(argument1));
+      
+      /* Free memory */
+      free(arg);
+    break;
+ 
+   case SYS_CREATE:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1));
+      checkAddress((void *)(callAddress + 2));
+
+      /* Initialize variables */
+      count = 2;
+      arg = (int *)malloc(count*sizeof(int));
+
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      argument2 = (int *)arg[1];
+      
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_create((const char *)*argument1, (unsigned int)*argument2);
+      free(arg);
+    break;
+ 
+   case SYS_REMOVE:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1));
+
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_remove((const char *)*(argument1 + 1));
+      free(arg);
+    break;
+
+    case SYS_OPEN:
+      /* Check addresses of arguments */      
+      checkAddress((void *)(callAddress + 1)); 
+
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_open((const char *)*argument1); 
+      free(arg);
+    break;
+
+    case SYS_FILESIZE:
+      /* Check addresses of arguments */     
+      checkAddress((void *)(callAddress + 1)); 
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+           
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_filesize(*argument1); 
+      free(arg);
+    break;
+
+    case SYS_READ:
+      /* Check addresses of arguments */    
+      checkAddress((void *)(callAddress + 1));
+      checkAddress((void *)(callAddress + 2));
+      checkAddress((void *)(callAddress + 3));
+
+      /* Initialize variables */
+      count = 3;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */      
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      argument2 = (int *)arg[1];
+      argument3 = (int *)arg[2];
+      
+      /* Calls the system call and frees the variables */      
+      f->eax = systemCall_read((int)*argument1,(void *)*argument2,(unsigned int)*argument3); 
+      free(arg);
+    break;
+
+    case SYS_WRITE:
+      /* Check addresses of arguments */      
+      checkAddress((void *)(callAddress + 1));
+      checkAddress((void *)(callAddress + 2));
+      checkAddress((void *)(callAddress + 3));
+
+      /* Initialize variables */
+      count = 3;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */      
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      argument2 = (int *)arg[1];
+      argument3 = (int *)arg[2];
+      
+      /* Calls the system call and frees the variables */      
+      f->eax = systemCall_write((int)*argument1,(const void*)*argument2,(unsigned int)*argument3);
+      free(arg);
+    break;
+
+    case SYS_SEEK:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1));
+      checkAddress((void *)(callAddress + 2));
+      
+      /* Initialize variables */
+      count = 2;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      argument2 = (int *)arg[1];
+      
+      /* Calls the system call and frees the variables */
+      systemCall_seek((int)*argument1,(unsigned int)*argument2);
+      free(arg);
+      break;
+
+    case SYS_TELL:
+      /* Check addresses of arguments */
+      checkAddress((void *)(callAddress + 1));
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      
+      /* Calls the system call and frees the variables */
+      f->eax = systemCall_tell((int)*argument1);
+      free(arg);
+      break;
+
+    case SYS_CLOSE:
+      /* Check addresses of arguments */      
+      checkAddress((void *)(callAddress + 1)); 
+      
+      /* Initialize variables */
+      count = 1;
+      arg = (int *)malloc(count*sizeof(int));
+      
+      /* Grabs the arguments */
+      getArguments(f->esp, arg, count); 
+      argument1 = (int *)arg[0];
+      
+      /* Calls the system call and frees the variables */
+      systemCall_close(*argument1); 
+      free(arg);
+      break;
   }
 }

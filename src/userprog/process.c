@@ -3,7 +3,6 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
@@ -17,10 +16,30 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+/*
+* Method: findChildThread
+* Purpose: Finds the thread with the parameter pid
+*/
+struct thread* findChildThread(int pid)
+{
+  struct thread *cur = thread_current();
+  struct list_elem *e;
+
+  /* How to traverse a list in pintos
+        http://math.hws.edu/eck/cs431/f16/lab2/pintos-list/list.h */
+  for (e = list_begin (&cur->child_list); e != list_end(&cur->child_list); e = list_next (e))
+  {
+    struct thread *t = list_entry (e, struct thread, child_elem);
+    if(t->tid == pid)
+      return t;
+  }
+  return NULL;
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -31,31 +50,35 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-
-
+  
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
+  
+  /* Copy the filename into the copy */
   strlcpy (fn_copy, file_name, PGSIZE);
-
-  //---------------------------------------------------------
-
-  //Extract the first value from the file_name
+  
+  /* Grab the name of the program by getting the first argument */
   char *save_ptr;
-  char *file_name_start;
-  file_name_start = malloc((char)strlen(file_name)+1);
-
-  strlcpy(file_name_start, file_name, strlen(file_name)+1);
-  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
-  //---------------------------------------------------------
+  char *file_name_tmp = (char *)malloc(strlen(file_name) + 1); 
+  strlcpy(file_name_tmp, file_name, strlen(file_name) + 1);
+  file_name_tmp= strtok_r ((char *)file_name_tmp, " ", &save_ptr);
+  
+  /* Trys to open the file */
+  if (filesys_open(file_name_tmp) == NULL)
+      return -1;
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name_start, PRI_DEFAULT, start_process, fn_copy);
-  free(file_name_start);
+  tid = thread_create (file_name_tmp, PRI_DEFAULT, start_process, fn_copy);
+  free(file_name_tmp);
+  
+  /* Protects the current thread while it's processing */
+  sema_down(&thread_current()->load_sema);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+
   return tid;
 }
 
@@ -67,21 +90,69 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
-  char *file_cpy;
-  
+
+  //Simlar to process_execute
+  char *save_ptr_a;
+  char *file_name_tmp = (char *)malloc(strlen(file_name) + 1); 
+  strlcpy(file_name_tmp, file_name, strlen(file_name) + 1);
+  file_name_tmp = strtok_r (file_name_tmp, " ", &save_ptr_a);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
-
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
+  success = load (file_name_tmp, &if_.eip, &if_.esp);
+  free(file_name_tmp); 
   
+  if(success){
+    thread_current()->load_flag = 1; /* Load was successful */
+  }
+  else{
+    thread_current()->load_flag =0; /* Load was not successful */
+  }
+  
+  /* Now we must facilitate the stack building */
+  if (success) 
+  {
+    /* Initially no arguments, haven't started parsing file_name */
+    int argc = 0;
+    
+    /* Token = argument
+        save_ptr = used for strtok_r */
+    char *save_ptr;
+    
+    /* Make a copy of the file_name for traversals */
+    char *file_name_temp = (char *)malloc(strlen(file_name) + 1); 
+    strlcpy(file_name_temp, file_name, strlen(file_name) + 1);
+    
+    /* This loop traverses the file_name and grabs the total amount of arguments */
+    for (char* token = strtok_r(file_name_temp, " ", &save_ptr);
+		            token != NULL; token = strtok_r (NULL, " ", &save_ptr))
+      argc++;
+
+
+    strlcpy(file_name_temp, file_name, strlen(file_name) + 1);              /* Recopy the file name so it can be traversed again */
+    char **argumentsList = (char **)malloc(argc * sizeof(char *));          /* Give space for the arguments */
+
+    /* This loop puts the arguments into the argument list */
+    for (int idx = 0, token = strtok_r(file_name_temp, " ", &save_ptr); 
+		              token != NULL; idx++, token = strtok_r (NULL, " ", &save_ptr))
+      argumentsList[idx] = token;
+  
+    //see the method below 
+    buildStack(argumentsList, argc, &if_.esp); 
+    
+    /* Free malloced memory */
+    free(argumentsList);
+    free(file_name_temp);
+  }
+  
+  sema_up(&thread_current()->parent->load_sema); 
+  palloc_free_page (file_name);
+
+  if (!success)
+    thread_exit ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -93,100 +164,100 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
+
+/*Establishes the stack for argument passing*/
+void buildStack(char **arguments, int count, void **esp)
+{
+  int lengthOfArguments = 0;                      /* When you realign the stack you need in a multiple of 4 */
+  int numberOfActualArguments = count - 1;        /* Easy reference */
+  int addresses[numberOfActualArguments];         /* Argument addresses are equal to one less the total number of arguments */
+
+  /* Step 1: Push the words onto the stack while keeping track 
+              of how long the arguments are */
+  for (int i = numberOfActualArguments; i >= 0; i--)
+  {
+    for (int j = strlen(arguments[i]); j >= 0; j--)
+    {
+      *esp -= 1;
+      **(char **)esp = arguments[i][j];
+    }
+    addresses[i] = (int)*esp;
+    lengthOfArguments += strlen(arguments[i]) + 1;
+  }
+
+  /* Step 2: Realign the stack using NULL sentials to say this is the
+        end of the arguments */
+  if (lengthOfArguments % 4 != 0) {
+    for (int i = (((lengthOfArguments / 4) + 1) * 4) - lengthOfArguments; i > 0; i--) 
+    {
+      *esp -= 1;
+      **(uint8_t **)esp = 0;
+    }
+  }
+
+  /* Step 3: 4 NULL sentials must be added here */
+  *esp -= 4;
+  **(uint32_t **)esp = 0;
+      
+  /* Step 4: Push the address of each word in right-to-left */
+  for (int i = numberOfActualArguments; i >= 0; i--)
+  {
+    *esp -= 4;
+    **(uint32_t **)esp = addresses[i];
+  }
+
+  /* Step 5: Push argv */
+  *esp -= 4;
+  **(uint32_t **)esp = (uint32_t)((int)*esp + 4);
+
+  /* Step 6: Push argc */
+  *esp -= 4;
+  **(int **)esp = count;
+
+  /* Step 7: Push 0 as fake return address */
+  *esp -= 4;
+  **(uint32_t **)esp = 0;
+      
+}
+
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
    immediately, without waiting.
-
    This function will be implemented in problem 2-2.  For now, it
-   does nothing. 
-   
-   Reference code: https://github.com/ChristianJHughes/pintos-project2/blob/master/pintos/src/userprog/process.c
-
-   new code reference: https://github.com/Waqee/Pintos-Project-2/blob/master/src/userprog/process.c
-   */
+   does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-
-  /*
-  struct thread* tchild = NULL;
-
-  struct list_elem* iter; //Element to iterate child list with
-
-  if (list_empty(&thread_current()->child_process_list)) //There are no child threads to check
-    return -1;
+  struct thread *child= findChildThread(child_tid);
   
-
-  for (iter = list_front(&thread_current()->child_process_list); iter != NULL; iter = iter->next)
+  if(child ==NULL)
+    return -1; // terminates
+  
+  else
   {
-    struct thread* t = list_entry(iter, struct thread, child_process);
-    if (t->tid = child_tid)
-    {
-      tchild = t;
-      break;
+    sema_down(&child->wait_sema);
+    if(child->exit != 1)
+      return -1;
+
+    //Kill child and give status to parent
+    else
+    { 
+      list_remove(&child->child_elem);
+      sema_up(&child->exit_sema);
+      return child->exit_status;
     }
   }
-
-  if (tchild == NULL) //We didn't find the child thread
-    return -1;
-
-  list_remove(&tchild->child_process);
-  sema_down(&tchild->child_sema);
-
-  return &tchild->exit_status;
-  */
-
-  struct list_elem *e;
-
-  struct child *ch = NULL;
-  struct list_elem *e1 = NULL;
-  struct thread *curThread = thread_current();
-
-  for (e = list_begin(&thread_current()->child_process_list); e != list_end(&thread_current()->child_process_list);
-        e = list_next(e))
-  {
-    struct child *f = list_entry(e, struct child, elem);
-    if (f->tid == child_tid)
-    {
-      ch = f;
-      e1 = e;
-    }
-  }
-
-  if (!ch || !e1)
-    return -1;
-
-  curThread->waitingon = ch->tid;
-
-  if (!ch->used)
-    sema_down(&thread_current()->child_sema);
-
-  int temp = ch->exit_error;
-  list_remove(e1);
-
-  return temp;
 }
 
-/* Free the current process's resources. 
-  Reference code: https://github.com/rida300/520Pintos/blob/master/cis520/pintos/src/userprog/process.c
-*/
+/* Free the current process's resources. */
 void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  if (cur->exit_status == -100)
-    systemCall_exit (-1);
-
-
-  lock_acquire(&filesys_lock);
-  file_close(thread_current()->my_file);
-  close_all_files(&thread_current()->file_descriptors);
-  lock_release(&filesys_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -204,6 +275,11 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  //sets exit state to true, allows wait to work, and exit to not  
+  cur->exit =1;
+  sema_up(&cur->wait_sema);
+  sema_down(&cur->exit_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -221,7 +297,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -285,7 +361,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, char* file_name);
+static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -304,29 +380,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-
-
-
+ 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
 
-  //---------------------------------------------------------
-
-  //Extract the first value from the file_name
-  char *save_ptr;
-  char *file_name_start = malloc(strlen(file_name)+1);
-
-  strlcpy(file_name_start, file_name, strlen(file_name)+1);
-  file_name_start = strtok_r(file_name_start, " ", &save_ptr);
-  //---------------------------------------------------------
-
   /* Open executable file. */
-  file = filesys_open (file_name_start);
-
-  free(file_name_start);
+  file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -406,7 +468,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, file_name))
+  if (!setup_stack (esp))
     goto done;
 
   /* Start address. */
@@ -414,15 +476,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   success = true;
 
-  //file_deny_write(file);
-
-
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -475,15 +534,11 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
-
         - READ_BYTES bytes at UPAGE must be read from FILE
           starting at offset OFS.
-
         - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
-
    The pages initialized by this function must be writable by the
    user process if WRITABLE is true, read-only otherwise.
-
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 static bool
@@ -533,124 +588,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-/* Reference: http://bits.usc.edu/cs350/assignments/project2.pdf */
 static bool
-setup_stack (void **esp, char* file_name) 
+setup_stack (void **esp) 
 {
   uint8_t *kpage;
   bool success = false;
 
-  
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
-  {
-    success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-    if (success)
-      *esp = PHYS_BASE;
-    else
-      palloc_free_page (kpage);     
-  }
-
-
-  /* Set up stack here*/
-  int argc = find_argc(file_name);
-
-  char *arguments[argc]; //Hold a list of the arguments
-  char *save_ptr, *token; 
-  int *argv = (int)malloc(sizeof(int)*argc);
-
-  char *fn_cpy = malloc(strlen(file_name)+1);
-  strlcpy(fn_cpy, file_name, strlen(file_name)+1);
-
-  //Create a list of arguments to be pushed onto the stack
-  token = strtok_r((char*)file_name, " ", &save_ptr);
-  for (int i = 0; i < argc; i++)
-  {
-    
-    arguments[i] = token;
-    token = strtok_r(NULL," ", &save_ptr);
-  }
-
-  //Add the arguments to the stack
-  for (int i = argc-1; i >= 0; i--) 
-  {
-    *esp -= strlen(arguments[i])+1;
-    memcpy(*esp, arguments[i], strlen(arguments[i]) + 1);
-
-    argv[i] = *esp;
-  }
-
-  //Word align
-  while((int)*esp%4 != 0)
-  {
-    /* The addresses are char * */
-    *esp -= sizeof(char);
-    char temp = 0;
-    memcpy(*esp, &temp, sizeof(char));
-  }
-
-  int returnAddr = 0;
-
-  *esp -= sizeof(int);
-  memcpy(*esp, &returnAddr, sizeof(int));
-
-  for (int i = argc-1; i >= 0; i--)
-  {
-    *esp -= sizeof(int);
-    memcpy(*esp, &argv[i], sizeof(int));
-  }
-
-  /* Write the address of argv */
-  int ptr = *esp;
-  *esp -= sizeof(int);
-  memcpy(*esp, &ptr, sizeof(int));
-  /*
-  *esp -= sizeof(char *);
-  memcpy(*esp, &argv, sizeof(char **));
-  */
-
-
-  /* Write argc */
-  *esp -= sizeof(int);
-  memcpy(*esp, &argc, sizeof(int));
-
-  /* Write 0 as return address */
-  *esp -= sizeof(int);
-  memcpy(*esp, &returnAddr, sizeof(int));
-
-  free(argv);
-  free(fn_cpy);
-  //hex_dump((uintptr_t)*esp, *esp, sizeof(char)*1024, true);
-  
+    {
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      if (success)
+        *esp = PHYS_BASE;
+      else
+        palloc_free_page (kpage);
+    }
   return success;
-}
-
-/*
-* Method: find_argc
-* Parameter: const char* file_name
-                -Needed for iteration
-* Purpose: Return the number of command line arguments
-*/
-int 
-find_argc(const char* file_name)
-{
-  int argc = 0;
-
-  /* Create an initialize a copy of file_name for manipulation */
-  char *fn_cpy, *token, *save_ptr;
-  fn_cpy = (char *)malloc(strlen(file_name)+1);
-  strlcpy(fn_cpy, file_name, strlen(file_name)+1);
-
-  for (token = strtok_r(fn_cpy, " ", &save_ptr); token != NULL; token = strtok_r(NULL," ", &save_ptr))
-  {
-    argc++;
-  }
-  
- // if (argc != 0)
-   // argc--;
-  
-  free(fn_cpy);
-  return argc;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

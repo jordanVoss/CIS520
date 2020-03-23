@@ -4,8 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include <kernel/list.h>
-#include <threads/synch.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -26,19 +25,12 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-
-/* Lock used for filesys applications */
-struct lock filesys_lock; 
-
-
 /* A kernel thread or user process.
-
    Each thread structure is stored in its own 4 kB page.  The
    thread structure itself sits at the very bottom of the page
    (at offset 0).  The rest of the page is reserved for the
    thread's kernel stack, which grows downward from the top of
    the page (at offset 4 kB).  Here's an illustration:
-
         4 kB +---------------------------------+
              |          kernel stack           |
              |                |                |
@@ -60,22 +52,18 @@ struct lock filesys_lock;
              |               name              |
              |              status             |
         0 kB +---------------------------------+
-
    The upshot of this is twofold:
-
       1. First, `struct thread' must not be allowed to grow too
          big.  If it does, then there will not be enough room for
          the kernel stack.  Our base `struct thread' is only a
          few bytes in size.  It probably should stay well under 1
          kB.
-
       2. Second, kernel stacks must not be allowed to grow too
          large.  If a stack overflows, it will corrupt the thread
          state.  Thus, kernel functions should not allocate large
          structures or arrays as non-static local variables.  Use
          dynamic allocation with malloc() or palloc_get_page()
          instead.
-
    The first symptom of either of these problems will probably be
    an assertion failure in thread_current(), which checks that
    the `magic' member of the running thread's `struct thread' is
@@ -87,47 +75,56 @@ struct lock filesys_lock;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
 struct thread
   {
     /* Owned by thread.c. */
-    tid_t tid;                          /* Thread identifier. */
-    enum thread_status status;          /* Thread state. */
+    /* Thread identifiers */
     char name[16];                      /* Name (for debugging purposes). */
-    uint8_t *stack;                     /* Saved stack pointer. */
+    tid_t tid;                          /* Thread identifier. */
+    
+    /* Thread information */
+    enum thread_status status;          /* Thread state. */
     int priority;                       /* Priority. */
+    uint8_t *stack;                     /* Saved stack pointer. */
+    
+    /* List element for it to be added to waiting and ready lists */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-   
 
 
-    int exit_status;
-    //------------USED FOR PROJECT 2-----------------//
-    int fd;                             /* Integer for file descriptors */
-    struct file* file_table[128];       /* Threads file table */
-    struct list file_descriptors;       /* List of file decriptore */
-    struct list child_process_list;     /* List of child processes */
-    struct list_elem child_process;     /* Element for child process, for iteration */
-    struct thread* parent;              /* Parent of the trhead */
-    struct semaphore child_sema;        /* Used to put parent thread to sleep */
-    struct file *my_file;               /* Threads File */
-    int waitingon;
+    /* Userprog additions */
+    /* File table to hold all of the pages */
+    struct file *file_table[128];		/* File descriptor table Pintos documentation says 128 */
+    
+    /* Parent spawns child, need to keep track of the child so parent can exit once child has finished */
+    int next_fd;			               /* Next file descriptor */
+    struct thread* parent;		         /* The parent thread */
+    struct list_elem child_elem;	      /* The list element so it can be put on the child_list */
+    struct list child_list;		      /* The list of child threads spawned by current thread */
 
+    /* Flags for gathering information about what the thread has done so far */
+    int load_flag;
+    int exit;
+
+    /* Used for synchronization between threads */
+    struct semaphore exit_sema;		   /* Exit state semaphore */
+    struct semaphore wait_sema;		   /* Wait state semaphore */
+    struct semaphore load_sema;		   /* Load state semaphore */
+
+    int exit_status;			            /* The thread's exit status */
+
+/* We decided to just make everything global in the struct. This ifdef is not needed */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
-  };
-
-  struct child {
-     int tid;
-     struct list_elem elem;
-     int exit_error;
-     bool used;
   };
 
 /* If false (default), use round-robin scheduler.
