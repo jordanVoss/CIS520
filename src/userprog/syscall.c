@@ -52,7 +52,8 @@ bool systemCall_create(const char *file, unsigned initial_size);
 bool systemCall_remove(const char *file);
 int systemCall_open(const char *file);
 int systemCall_filesize(int fd);
-int systemCall_read(int fd, void *buffer, unsigned size);
+//int systemCall_read(int fd, void *buffer, unsigned size);
+int systemCall_read(int *ptr);
 int systemCall_write(int fd, void *buffer, unsigned size);
 void systemCall_seek(int fd, unsigned position);
 unsigned systemCall_tell(int fd);
@@ -82,7 +83,9 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   /* Gets the effective address of esp */
-  int *esp = (int *)f->esp;
+  int *esp = f->esp;
+
+  check_address(esp);
 
   /* Dereference esp to get the system call */  
   int system_call = *esp;
@@ -112,9 +115,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     */
     case(SYS_EXEC):;
       char* arg2 = *(esp + 1); //gets the argument off of the stack
+      check_address(esp+1);
       check_address(arg2);
-      pid_t EAX = systemCall_exec(arg2);  //accuires output from method call
-      f->eax = (uint32_t)EAX;  //assigns output to volitile register
+      
+      f->eax = systemCall_exec(arg2);  //assigns output to volitile register
       break;
 
     /* System Call: Wait
@@ -142,8 +146,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     */
     case(SYS_REMOVE):;
       char *arg6 = *(esp + 1);
+      check_address(esp+1);
       check_address(arg6);
-      f->eax = (uint32_t)systemCall_remove(arg6);
+      f->eax = systemCall_remove(arg6);
       break;
 
     /* System Call: Open
@@ -151,6 +156,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     */
     case(SYS_OPEN):;
       char *arg7 = *(esp + 1);
+      check_address(esp+1);
       check_address(arg7);
       //char *tempvar = *(esp + 2);
       //printf("%s\n\n",&tempvar);
@@ -176,7 +182,8 @@ syscall_handler (struct intr_frame *f UNUSED)
       check_address(arg9);
       check_address(arg10);
       check_address(arg11);
-      f->eax = (uint32_t)systemCall_read(arg9, arg10, arg11);
+      //f->eax = (uint32_t)systemCall_read(arg9, arg10, arg11);
+      f->eax = systemCall_read(esp);
       break;
 
     /* System Call: Write
@@ -201,14 +208,19 @@ syscall_handler (struct intr_frame *f UNUSED)
        Status: Needs implemented
     */
     case(SYS_SEEK):;
-      //printf("\n\nI am in SYS_SEEK\n\n");
+      int arg15 = *(esp + 1);
+      unsigned int arg16 = *(esp + 2);
+      check_address(arg16);
+      systemCall_seek(arg15, arg16);
       break;
 
     /* System Call: Create
        Status: Needs implemented
     */  
     case(SYS_TELL):;
-      //printf("\n\nI am in SYS_TELL\n\n");
+      int arg17 = *(esp + 1);
+      check_address(arg17);
+      f->eax = systemCall_tell(arg17);
       
       break;
 
@@ -216,7 +228,9 @@ syscall_handler (struct intr_frame *f UNUSED)
        Status: Needs implemented
     */
     case(SYS_CLOSE):;
-      //printf("\n\nI am in SYS_CLOSE\n\n");
+      int arg18 = *(esp + 1);
+      check_address(arg18);
+      systemCall_close(arg18);
       break;
 
 
@@ -269,7 +283,7 @@ pid_t systemCall_exec(const char *comd_line)
 
   //Set token to the first element
   char* save_ptr;
-  token = strtok_r(&token, " ", &save_ptr);
+  token = strtok_r(token, " ", &save_ptr);
 
   //Open the file
   struct file* f = filesys_open(token);
@@ -280,8 +294,9 @@ pid_t systemCall_exec(const char *comd_line)
     lock_release(&filesys_lock);
     return -1;
   }
-
-  //close the file
+  else
+  {
+    //close the file
   file_close(f);
 
   //release the lock
@@ -289,6 +304,7 @@ pid_t systemCall_exec(const char *comd_line)
 
   //return the execution of the file
   return process_execute(comd_line);
+  }
 }
 
 /* The wait system call */
@@ -311,9 +327,10 @@ bool systemCall_create(const char *file, unsigned initial_size)
 
 bool systemCall_remove(const char *file)
 {
+  
   lock_acquire(&filesys_lock);
   bool result;
-  if (filesys_remove(*file) == NULL)
+  if (filesys_remove(file) == NULL)
     result = false;
   else
     result = true;
@@ -321,6 +338,8 @@ bool systemCall_remove(const char *file)
   lock_release(&filesys_lock);
   
   return result;
+  
+  //return filesys_remove(file) != NULL;
 }
 
 
@@ -336,17 +355,18 @@ int systemCall_open(const char *file)
     lock_release(&filesys_lock);
     return -1;
   }
-  
-  struct process_file *pfile = malloc(sizeof(struct process_file));
-  pfile->file_ptr = f;
-  pfile->fd = thread_current()->fd;
-  thread_current()->fd++; //Increment file descriptor
-  list_push_front(&thread_current()->file_descriptors, &pfile->file_elem); //Add the process file to the thread lsit of file_descriptors
+  else
+  {
+    struct process_file *pfile = malloc(sizeof(struct process_file));
+    pfile->file_ptr = f;
+    pfile->fd = thread_current()->fd;
+    thread_current()->fd++; //Increment file descriptor
+    list_push_back(&thread_current()->file_descriptors, &pfile->file_elem); //Add the process file to the thread lsit of file_descriptors
 
-  lock_release(&filesys_lock); //Unlock the system
-  return pfile->fd;
+    lock_release(&filesys_lock); //Unlock the system
+    return pfile->fd;
+  }
 
-  //NEED TO INIT FILE_DESCRIPTORS LIST IN THREADS.C
 }
 
 
@@ -361,10 +381,31 @@ int systemCall_filesize(int fd)
 }
 
 
-int systemCall_read(int fd, void *buffer, unsigned size)
+
+int systemCall_read(int *ptr)
 {
-  int temp;
-  return temp;
+  int i;
+  if (*(ptr+1) == 0)
+  {
+  	uint8_t *buffer = *(ptr+2);
+  	for (i = 0; i < *(ptr+3); i++)
+  		buffer[i] = input_getc ();
+  	return *(ptr+3);
+  }
+  else
+  {
+  	struct process_file *file_ptr = search (&thread_current()->file_descriptors, *(ptr+1));
+  	if (file_ptr == NULL)
+  		return -1;
+  	else
+  	{
+  		int offset;
+      lock_acquire(&filesys_lock);
+  		offset = file_read (file_ptr->file_ptr, *(ptr+2), *(ptr+3));
+  		lock_release(&filesys_lock);
+  		return offset;
+  	}
+  }
 }
 
 int systemCall_write(int fd, void *buffer, unsigned size)
@@ -378,38 +419,72 @@ int systemCall_write(int fd, void *buffer, unsigned size)
     lock_release(&filesys_lock);
     return size;
   }
-  
-  struct process_file *p_file = search(&thread_current()->file_descriptors, fd);
-
-  if (p_file == NULL)
+  else
   {
+    struct file *p_file = search(&thread_current()->file_descriptors, fd)->file_ptr;
+
+    if (p_file == NULL)
+    {
+      lock_release(&filesys_lock);
+      return 0;
+    }
+
     lock_release(&filesys_lock);
-    return -1;
+    return file_write(p_file, buffer, size);
   }
-
-
-  lock_release(&filesys_lock);
-  return file_write(p_file->file_ptr, buffer, size);
 }
 
 
 void systemCall_seek(int fd, unsigned position)
 {
-  //more gold please
+  lock_acquire(&filesys_lock);
+  struct process_file* file = search(&thread_current()->file_descriptors, fd);
+
+  if (file == NULL)
+  {
+    lock_release(&filesys_lock);
+    systemCall_exit(-1);
+  }
+  else
+  {
+    lock_release(&filesys_lock);
+    file_seek(&file->file_ptr, position);
+  }
+  
+  
 }
 
 
 unsigned systemCall_tell(int fd)
 {
-  unsigned temp;
-  return temp;
+  struct process_file* file = search(&thread_current()->file_descriptors, fd);
+
+  if (file == NULL)
+  {
+    systemCall_exit(-1);
+  }
+  else
+  {
+    return file_tell(file);
+  }
 }
 
 
 ///
 void systemCall_close(int fd)
 {
-  //last bit of gold
+  if (list_empty(&thread_current()->file_descriptors))
+    return;
+  lock_acquire(&filesys_lock);
+  struct process_file* file = search(&thread_current()->file_descriptors, fd);
+
+  if (file != NULL)
+  {
+    file_close(file->file_ptr);
+    list_remove(&file->file_elem);
+    free(file);
+  }
+  lock_release(&filesys_lock);
 }
 
 struct process_file *search(struct list* files, int fd)
