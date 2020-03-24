@@ -1,0 +1,424 @@
+﻿+-------------------------------------------------+
+          |                         CIS 520                          |
+          |    PROJECT 2: USER PROGRAMS          |
+          |              DESIGN DOCUMENT               |
+          +-------------------------------------------------+
+
+
+---- GROUP ----
+>> Fill in the names of your group members.
+Zachery Brunner
+Jordan Voss
+Jackson Carder
+
+
+
+
+---- PRELIMINARIES ----
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+
+On our system, the code will fail on 38/80 tests. Most of the failing tests seem to be failing on tests that should throw errors, meaning that we are most likely not checking the correct things or there are edge cases we were not able to figure out.
+
+
+----References----
+https://www.youtube.com/watch?v=OE79vNZp1KI
+http://bits.usc.edu/cs350/assignments/project2.pdf
+https://github.com/rida300/520Pintos/blob/master/cis520/pintos/src/userprog/syscall.c
+http://www.cse.iitd.ernet.in/~cs1090191/userprog/OUTPUT/0.html_a.html
+https://github.com/songhan/CS140/blob/master/src/userprog/syscall.c
+
+
+  ARGUMENT PASSING
+  ================
+
+
+---- DATA STRUCTURES ----
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+
+>A1: We did not declare any new data structures for argument passing.
+In setup_stack we did declare a new array 
+        Char *arguments[argc]
+This is used to hold the arguments and access them to insert into the stack.
+
+
+---- ALGORITHMS ----
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+
+>A2: We implement argument passing by first using the strtok_r() function to get all of the tokens. Tokenizing the file name on the “ ” character. After getting all of the tokens, we followed the following steps. 
+        Step 1: Push the words onto the stack, you must keep the addresses of these words.
+                Note: If you do this character by character, you are less likely to make a mistake by not including the null character at the end. But, you must have your for loop terminate at strlen(argument) + 1 because strlen does not count the null character as a part of the words characters.
+        Step 2: Push NULL pointer sentinels.
+        Step 3: Push the addresses of all of the arguments in right-to-left (backwards) order.
+        Step 4: Push address of argv.
+        Step 5: Push argc.
+        Step 6: Push 0 as fake return address.
+
+
+        
+We prevent the stack from overflowing by ensuring that every string or char array that are put on the stack end with a null terminator character (\0). If the user program runs out of stack space, a panic is sent to the kernel and the user program exits.
+
+
+---- RATIONALE ----
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+
+>A3: strtok_r() is implemented because it’s pseudo atomic. It is a re-entrant version of the strtok() method which allows it to be interrupted and resumed without corruption or loss of data. This is accomplished through the use of a save_ptr which gives the function its reentrant capabilities.
+
+
+
+
+>> A4: In Pintos, the kernel separates commands into an executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+
+
+
+        >A4: Parsing in a shell can be more secure if ran in the user space. This means the potentially hazardous and/or buggy code is kept isolated from the kernel. Another advantage of the unix method is that running in the shell allows the user to run multiple programs and/or shells without having to modify the kernel for each one.
+
+
+    SYSTEM CALLS
+    ============
+
+
+---- DATA STRUCTURES ----
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+
+struct lock filesys_lock; 
+        Used to ensure that data will not be corrupted in the system calls.
+
+
+//-----------------------------------
+//Struct used to keep track of file descriptors of open and closed
+//fd is a positive int, but never 0 or 1
+struct
+process_file {
+  struct file* file_ptr;             //Pointer to the file being used
+  struct list_elem file_elem;        //List element
+  int fd;                            //File Descriptor
+};
+
+
+The following are changes added to the thread struct in thread.h
+struct list file_descriptors;       /* List of file descriptor */
+
+
+int fd;                             /* Integer for file descriptors */
+
+
+struct list child_process_list;     /* List of child processes */
+
+
+struct list_elem child_process;     /* Element for child process, for iteration */
+
+
+struct thread* parent;              /* Parent of the thread */
+
+
+struct semaphore child_sema;        /* Used to put parent thread to sleep */
+struct file *my_file;               /* Threads File */
+
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+
+        File descriptors are normally unique to the process. However, if the process were to fork and make children, those children would share a reference to the same file descriptor. Forking gives the child a copy of everything the parent has and then begins its process. 
+
+
+---- ALGORITHMS ----
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+
+Reading:
+        The SYS_READ system call is passed to syscall_handler in syscall.c. From there, the addresses of the arguments from esp are checked to be valid addresses within the user program memory space. This is to ensure a user programs virtual memory does not interfere with the kernel memory. If any address is within the kernel space, the program will call systemCall_exit(-1), ending the execution of that process.
+int arg9 = *(esp + 1);
+      void *arg10 = *(esp + 2);
+      unsigned arg11 = *(esp + 3);
+      check_address(arg9);
+      check_address(arg10);
+      check_address(arg11);
+
+
+After checking that the addresses are all valid, we set the frames eax to systemCall_read(esp)
+f->eax = systemCall_read(esp);
+
+
+In our read function…
+int systemCall_read(int *ptr)
+...We first check if ptr+1 (fd number) is equal to 0. If it is equal to 0, we create a new buffer equal to (ptr+2) (the buffer that was sent to read into). Then, we have a for loop that will start at zero and end when it has reached (ptr + 3) (the size of the string coming in). Then, we used the function input_getc()  to set the current position of the buffer to the new character. Returning the size (ptr + 3).
+if (*(ptr+1) == 0)
+  {
+    uint8_t *buffer = *(ptr+2);
+    for (i = 0; i < *(ptr+3); i++)
+      buffer[i] = input_getc ();
+    return *(ptr+3);
+  }
+
+
+If the above if statement is false, we have a file to read.
+So, we will first create a new struct process_file and set it equal to the file that corresponds with the fd (ptr + 1)
+struct
+process_file {
+  struct file* file_ptr;             //Pointer to the file being used
+  struct list_elem file_elem;        //List element
+  int fd;                            //File Descriptor
+};
+We find the file by calling a search function we wrote that will take in a list of files and a file descriptor, iterating through that list and if the file exists, returns a newly created process_file struct, else returns NULL.
+struct process_file *file_ptr = search (&thread_current()->file_descriptors, *(ptr+1));
+
+
+Then, we check if the file_ptr is NULL, if so we return -1.
+if (file_ptr == NULL)
+      return -1;
+
+
+If it is not NULL, we will read the file. This is accomplished by creating a variable called offset, that we will return at the end of the method. The thread then acquires the filesys_lock so that no other threads will interfere with the file as we read it. We read the buffer by calling file_read sending the pointer to the file (from the process_file struct), the buffer, and the size ((ptr + 2), and (ptr + 3) respectively).
+int offset;
+      lock_acquire(&filesys_lock);
+      offset = file_read (file_ptr->file_ptr, *(ptr+2), *(ptr+3));
+      lock_release(&filesys_lock);
+      return offset;
+
+
+
+
+
+
+Writing
+The main difference between SYS_WRITE and the SYS_READ case is that instead of sending esp to the function, we send the individual arguments. 
+case(SYS_WRITE):;
+      int arg12 = *(esp + 1);
+      void *arg13 = *(esp + 2);
+      unsigned arg14 = *(esp + 3);
+      check_address(arg12);
+      check_address(arg13);
+      check_address(arg14);
+      f->eax = systemCall_write(arg12, arg13, arg14);
+      break;
+
+
+We first check if fd == 1, and if so, we will write the buffer sent to us using the putbuff function.
+if (fd == 1)
+  {
+    putbuf(buffer, size);
+    lock_release(&filesys_lock);
+    return size;
+  }
+
+
+If fd does not equal 1, we know that we will be writing a file. We first make a new process_file struct equal to a search of the file_descriptors using fd as the file ID.
+struct file *p_file = search(&thread_current()->file_descriptors, fd)->file_ptr;
+
+
+After we have the file, we check if it is equal to NULL, if true, we return 0.
+if (p_file == NULL)
+    {
+      lock_release(&filesys_lock);
+      return 0;
+    }
+
+
+If the file is not NULL, we will use the file_write function to write the file using both the buffer and size variables that were sent to us from the switch case. We return the result of this function call which concludes the write system call.
+return file_write(p_file, buffer, size);
+
+
+
+
+
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+
+Currently, there is only one way to copy data from user space into the kernel. This is through ELF executables, as it is the only file type implemented in pintos currently. The page size also needs to be large enough. 
+
+
+
+
+The best case is one inspection where the ELF executable is equal to the size of a page segment. This is the same for if 2 bytes of data is copied. Therefore, in a worst case of 1 inspection per byte, we would have 4096 inspections taking place.
+
+
+
+
+Improvement can be made because many segments can fit onto a page. If multiple segments could share a page (say 2 segments per page), this could cut down on the number of inspections by half.
+
+
+
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+
+The parent process spawns a child process that actually does the execution. 
+While that child thread is running, the parent needs to wait to exit. Wait calls a function struct thread * findChildThread(tid_t pid). Once the child thread finishes running, it sets its exit status and passes it back to the parent thread to pass to the kernel. 
+
+
+When the process terminates it might need to release the variables bound to the parent thread
+
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+
+Most of the error handling was kept in the exception.c file. It will print out the reason for the exit and then call the appropriate closing function. In most cases related to this project, it would call thread_exit.
+
+
+Thread_exit is used to exit the current thread and free all the resources associated with that thread. It does this by first calling process_exit in process.c. 
+#ifdef USERPROG
+  process_exit ();
+#endif
+
+
+This script is used to exit out of all the files that are stored in the threads file_descriptors.
+   lock_acquire(&filesys_lock);
+  file_close(thread_current()->my_file);
+  close_all_files(&thread_current()->file_descriptors);
+  lock_release(&filesys_lock);
+
+
+After process_exit is done executing, we have a while loop set up to free all of the child processes that are in that thread. We do that by getting a file out of the thread_current’s child_process_list and then removing it from that list and calling free() on the file.
+  while (!list_empty(&thread_current()->child_process_list))
+  {
+    struct process_file *f = list_entry(list_pop_front(&thread_current()->child_process_list), struct child, elem);
+    free(f);
+  }
+
+
+After the thread has its status set to ‘THREAD_DYING’ it calls schedule() to remove itself from the ready list. This prevents the thread from ever running again.
+
+
+
+
+---- SYNCHRONIZATION ----
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+
+        >B7: This is ensured by the checking to see if the file generated by the method filesys_open() is NULL or not. If it is NULL, then the all resources held by the process are released and “exec” returns -1.
+
+
+
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits? 
+>> Are there any special cases?
+
+
+        >B8: Synchronization and race condition minimization are maintained if parent process P is called to wait before wait(C) is called by observing that its child is still active and will spin until child C is finished to call wait() for itself. 
+                Synchronization and race conditions are minimized when parent P calles wait() after child C does, because parent P will notice and find child C and free it. This is done for every thread and their children so as to clear them all up before the parent does anything. In the event that parent P exits before/without calling wait(), and if its child(ren) has not yet exited, then the child(ren) will also exit.
+
+
+---- RATIONALE ----
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+
+We decided to check the validity of pointers before they were used. Doing it this way ensures that attackers could not access the kernel memory so it improves security. It also makes it easier to work with errors that come from invalid pointers. Instead of needing to constantly keep track of the exit reason and send it to exception, we can exit the program right away using systemCall_exit.
+
+
+
+
+
+
+
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+
+One advantage to how we implemented the file descriptors is that it is space efficient. Since we are using a list that is built as more files are added, we only have enough slots to fit the set amount of file descriptors. If we had gone with an array of file descriptors, we would have had to assign an arbitrary large number to the amount of file descriptors we can have. If there are only a small handful of files, such as 5, the rest of that space is still allocated but is doing nothing. 
+One possible disadvantage is that it is more complicated to program the access to each file. With an array we could access each file directly, but because we are not using that, we had to write a seperate function that would search through the threads files and see if it is in the list. We also had to have a seperate struct to keep track of that file instead of just needed to save the position in an int. This could cause a small amount of extra overhead to the program.
+
+
+
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+
+We did not change the mapping.
+
+
+
+
+  SURVEY QUESTIONS
+  ================
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+
+The project did take quite a while to complete and had its ups and downs. Mostly there was a lot of stuff that was hard to debug and errors that would make no sense in the confines of the project.
+
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+
+I think that working on syscall gave me a much greater understanding on how systems are able to generalize their code and all use the same functions to pull information off of the stack and complete the processes.
+
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+
+I think it would be useful to have a list of things that need to be done, at least bare minimum, to get tests passing.
+
+
+I also think it would be useful to have some examples on running the test cases individually and how we can use the debugger to walk through them. When we tried running them using pintos -v --gdb -- run ‘tests/anyfile’ we would always get an error that the system could not open the test file, so we were not able to debug those specific tests to see what was not working correctly.
+
+
+
+
+
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+
+Explaining in more detail, what goes into building and maintaining the stack and its associated components will help students in the future who are stumped as to how to begin building it in the first place. In terms of just helping students within the semester, being more responsive to emails will go a long way as well as help sessions over concepts useful in the current or future projects.
+
+
+>> Any other comments?
